@@ -1,5 +1,6 @@
 import torch
 
+
 class TransformerDataset(torch.utils.data.Dataset):
     
     def __init__(self, dataset, seq_len, cond=False):

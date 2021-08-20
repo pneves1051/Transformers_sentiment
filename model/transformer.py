@@ -86,10 +86,11 @@ class Generator(nn.Module):
 
     pos_emb = self.pos_emb(torch.arange(seq_len, device=x.device).unsqueeze(0).expand(N,seq_len))
     x = x + pos_emb
-
+    
     for cond_layer, layer in zip(self.cond_layers, self.transformer):
       #cond_emb = cond_layer(cond)
       #x = x + cond_emb
+      
       x = layer(x, attn_mask=fast_transformers.masking.TriangularCausalMask(seq_len, device=x.device))#, pos_emb = layer_pos_emb, **kwargs)
       
     # norm and to logits

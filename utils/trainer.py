@@ -7,7 +7,7 @@ import torch.nn.functional as F
 
 class TransformerTrainer():
   def __init__(self, generator, discriminator, dataloader, valid_dataloader, ce_loss, gan_loss, device, lr,
-               vocab_size, d_iters=5, total_iters=100000, temperature=100, gan_hp = 1,accumulation_steps=1):
+               vocab_size, d_iters=5, total_iters=100000, temperature=100, gan_hp = 1, accumulation_steps=1):
     self.generator = generator
     self.discriminator = discriminator
 
@@ -29,7 +29,7 @@ class TransformerTrainer():
     self.accumulation_steps=accumulation_steps
 
     self.history = defaultdict(list)
-    
+   
   def train_epoch(self, log_interval=20):
     self.generator.train()
        
@@ -49,6 +49,7 @@ class TransformerTrainer():
         b_size, seq_len = targets.shape
      
       outputs,_= self.generator(inputs, conds)
+      
       '''
       clone_out = outputs.clone()
       if (index+1)%log_interval == 0:
@@ -96,6 +97,8 @@ class TransformerTrainer():
     self.discriminator.train
 
     losses = []
+    d_losses = []
+    g_losses = []
     correct_predictions = 0.0
     start_time = time.time()
   
@@ -132,6 +135,7 @@ class TransformerTrainer():
           print(unique[torch.argsort(counts, descending=True)], len(unique))
         '''
 
+        # Chunk and calculate loss
         d_loss = self.gan_loss(self.discriminator, d_fake, fake_gumbel, d_real, F.one_hot(targets, num_classes=self.vocab_size), mode='d')
                        
         self.d_optimizer.zero_grad()                  
@@ -140,6 +144,7 @@ class TransformerTrainer():
         self.d_optimizer.step()    
         #self.scheduler.step()
 
+        d_losses.append(d_loss.item())
         '''
         if (index+1) % self.accumulation_steps == 0:       
           torch.nn.utils.clip_grad_norm_(self.model.parameters(), 0.25)
@@ -148,7 +153,6 @@ class TransformerTrainer():
           self.model.zero_grad()                  
         '''
         
-
       #########
       # G update
       #########      
@@ -157,6 +161,7 @@ class TransformerTrainer():
         p.requires_grad = False      
       
       temperature=self.get_temperature()
+      print(temperature)
       fake, fake_gumbel = self.generator(inputs, conds, temperature)
       d_fake = self.discriminator(fake_gumbel, conds)
 
@@ -170,11 +175,15 @@ class TransformerTrainer():
       mle_loss = self.ce_loss(fake.permute(0,2,1), targets)              
       gan_g_loss = self.gan_loss(self.discriminator, d_fake, mode='g')
       g_loss = mle_loss + self.gan_hp*gan_g_loss
+      
       # loss /= self.accumulation_steps
       self.g_optimizer.zero_grad()    
       g_loss.backward()
       self.g_optimizer.step()    
       #self.scheduler.step()
+
+      g_losses.append(gan_g_loss.item())
+      losses.append(mle_loss.item()*self.accumulation_steps)
 
       '''
       if (index+1) % self.accumulation_steps == 0:       
@@ -187,25 +196,27 @@ class TransformerTrainer():
 
       correct_predictions += torch.sum(preds == targets)
       #print(set(preds.reshape(-1).tolist()))
-      losses.append(mle_loss.item()*self.accumulation_steps)
                   
       if index % log_interval == 0 and index > 0:
         elapsed = time.time() - start_time
         current_loss = np.mean(losses)
+        current_g_loss = np.mean(g_losses)
+        current_d_loss = np.mean(d_losses)
+
         print('| {:5d} of {:5d} batches | lr {:02.7f} | ms/batch {:5.2f} | '
-              'loss {:5.6f} | acc {:8.6f}'.format(
+              'loss {:5.6f} | acc {:8.6f} | D_loss: {}, G_loss: {}'.format(
               index, len(self.dataloader), 
               2, # self.scheduler.get_last_lr()[0],
               elapsed*1000/log_interval,
-              current_loss,  correct_predictions /((index+1)*b_size*seq_len)))
+              current_loss,  correct_predictions /((index+1)*b_size*seq_len), 
+              current_g_loss, current_d_loss))
         start_time = time.time()
 
-        self.num_iters += 1
+      self.num_iters += 1
 
     train_acc = correct_predictions /((index+1)*b_size*seq_len)
     train_loss = np.mean(losses)
-    return train_acc, train_loss, losses
-  
+    return train_acc, train_loss, losses  
   
   def train(self, EPOCHS, checkpoint_dir, validate = False, log_interval=20, load=False, save=True, change_lr = False, train_gan=False):
     best_accuracy = 0
