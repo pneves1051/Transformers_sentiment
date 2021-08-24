@@ -36,18 +36,19 @@ dataloader = torch.utils.data.DataLoader(dataset, batch_size=data_hps['batch_siz
 
 vocab_size = encoder.vocab_size
 model_hps = hps['model']
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-#device = 'cpu'
+#device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = 'cpu'
 transformer_gen = Generator(vocab_size, model_hps['max_seq_len'], model_hps['dim'], model_hps['n_layers'],
                             model_hps['n_heads'], model_hps['ff_dim'], cond=False, cond_dim=1).to(device)
 transformer_disc = Discriminator(vocab_size, model_hps['max_seq_len'], model_hps['dim'], model_hps['n_layers'],
                             model_hps['n_heads'], model_hps['ff_dim'], cond=False, cond_dim=1).to(device)
 
-
+'''
 data = next(iter(dataloader))['inputs'].to(device)
 transformer_gen(data)
-#transformer_disc(F.one_hot(data, num_classes = vocab_size))
 '''
+#transformer_disc(F.one_hot(data, num_classes = vocab_size))
+
 print(device)
 checkpoint_dir = 'C:/Users/pedro/Documents/The Life of Academia - Mestrado/MS/Transformer_GAN/checkpoints/'
 
@@ -58,5 +59,4 @@ gan_loss = wgan_loss
 trainer = TransformerTrainer(transformer_gen, transformer_disc, dataloader, None, ce_loss, gan_loss, device, 
                             train_hps['lr'], vocab_size, total_iters=train_hps['total_iters'])
 
-history = trainer.train(1, checkpoint_dir, validate=False, log_interval=40, load=False, save=False, change_lr=False, train_gan=True)
-'''
+history = trainer.train(10, checkpoint_dir, validate=False, log_interval=40, load=False, save=False, change_lr=False, train_gan=False)

@@ -2,8 +2,8 @@
 data:
   steps_per_sec: 100
   num_vel_bins: 32
-  min_pitch: 0
-  max_pitch: 127 
+  min_pitch: 21
+  max_pitch: 108
   seq_len: 2048
   num_workers: 4
   stretch_factors: [0.95, 0.975, 1.0, 1.025, 1.05]

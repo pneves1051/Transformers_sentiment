@@ -6,7 +6,8 @@ from fast_transformers.attention.linear_attention import LinearAttention
 from fast_transformers.attention.causal_linear_attention import CausalLinearAttention
 from fast_transformers.attention import AttentionLayer
 from fast_transformers.transformers import TransformerEncoderLayer
-
+import spe
+from .attention import RelativeTransformerEncoderLayer, RelativeAttentionLayer
 
 class Generator(nn.Module):
   def __init__(self,
@@ -27,21 +28,29 @@ class Generator(nn.Module):
     self.cond = cond
     self.cond_dim = cond_dim
     self.src_mask = None
+    self.n_heads = n_heads
 
     self.embedding = nn.Embedding(num_tokens, dim)
 
     self.pos_emb = nn.Embedding(max_seq_len, dim)
     self.cond_embedding = nn.Embedding(cond_dim, dim)
    
+    
+    self.spe_encoder = spe.SineSPE(num_heads=n_heads, # Number of attention heads
+                          in_features=dim//n_heads,       # Dimension of keys and queries
+                          num_realizations=dim//n_heads,  # New dimension of keys and queries
+                          num_sines=5) 
+
+    
     self.transformer = nn.ModuleList(
     [
-        TransformerEncoderLayer(
-            AttentionLayer(CausalLinearAttention(dim//n_heads), dim, n_heads, d_keys=dim//n_heads,
-                 d_values=dim//n_heads),
+        RelativeTransformerEncoderLayer(
+            RelativeAttentionLayer(CausalLinearAttention(dim//n_heads), dim, n_heads, d_keys=dim//n_heads,
+                 d_values=dim//n_heads, code_shape = self.spe_encoder.code_shape),
             dim,
             ff_dim,
             dropout=dropout,
-            activation="gelu"            
+            activation="gelu"                     
         ) for l in range(n_layers)
     ])
     
@@ -85,13 +94,15 @@ class Generator(nn.Module):
     N, seq_len,_ = x.shape
 
     pos_emb = self.pos_emb(torch.arange(seq_len, device=x.device).unsqueeze(0).expand(N,seq_len))
-    x = x + pos_emb
+    x = self.dropout(x + pos_emb)
+    
+    pos_codes = self.spe_encoder([x.shape[0], x.shape[1]])
     
     for cond_layer, layer in zip(self.cond_layers, self.transformer):
       #cond_emb = cond_layer(cond)
       #x = x + cond_emb
       
-      x = layer(x, attn_mask=fast_transformers.masking.TriangularCausalMask(seq_len, device=x.device))#, pos_emb = layer_pos_emb, **kwargs)
+      x = layer(x, attn_mask=fast_transformers.masking.TriangularCausalMask(seq_len, device=x.device), pos_codes=pos_codes)#, pos_emb = layer_pos_emb, **kwargs)
       
     # norm and to logits
     x = self.norm(x)
@@ -166,7 +177,8 @@ class Discriminator(nn.Module):
     N, seq_len,_ = x.shape
 
     pos_emb = self.pos_emb(torch.arange(seq_len, device=x.device).unsqueeze(0).expand(N,seq_len))
-    x = x + pos_emb
+    x = self.dropout(x + pos_emb)
+
 
     for layer in self.transformer:
       #cond_emb = cond_layer(cond)
@@ -176,7 +188,9 @@ class Discriminator(nn.Module):
     # norm and to logits
     x = self.norm(x)
 
-    out = self.to_out(x)
+    out_class = x[:, 0]
+    out_class = self.to_out(out_class)
+    #out = self.to_out(x)
 
-    return out
+    return out_class
 

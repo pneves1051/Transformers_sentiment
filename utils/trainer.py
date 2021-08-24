@@ -71,7 +71,7 @@ class TransformerTrainer():
         # self.scheduler.step()
         self.model.zero_grad()                  
       '''
-      preds = torch.argmax(F.softmax(outputs, dim=1), dim = 1)
+      preds = torch.argmax(F.softmax(outputs, dim=-1), dim = -1)
 
       correct_predictions += torch.sum(preds == targets)
       #print(set(preds.reshape(-1).tolist()))
