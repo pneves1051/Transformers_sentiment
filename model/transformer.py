@@ -6,8 +6,7 @@ from fast_transformers.attention.linear_attention import LinearAttention
 from fast_transformers.attention.causal_linear_attention import CausalLinearAttention
 from fast_transformers.attention import AttentionLayer
 from fast_transformers.transformers import TransformerEncoderLayer
-import spe
-from .attention import RelativeTransformerEncoderLayer, RelativeAttentionLayer
+from .attention import RelativeTransformerEncoderLayer, RelativeAttentionLayer, Rotary
 
 class Generator(nn.Module):
   def __init__(self,
@@ -35,18 +34,13 @@ class Generator(nn.Module):
     self.pos_emb = nn.Embedding(max_seq_len, dim)
     self.cond_embedding = nn.Embedding(cond_dim, dim)
    
-    
-    self.spe_encoder = spe.SineSPE(num_heads=n_heads, # Number of attention heads
-                          in_features=dim//n_heads,       # Dimension of keys and queries
-                          num_realizations=dim//n_heads,  # New dimension of keys and queries
-                          num_sines=5) 
-
+    self.rotary = Rotary(dim=dim//n_heads)
     
     self.transformer = nn.ModuleList(
     [
         RelativeTransformerEncoderLayer(
             RelativeAttentionLayer(CausalLinearAttention(dim//n_heads), dim, n_heads, d_keys=dim//n_heads,
-                 d_values=dim//n_heads, code_shape = self.spe_encoder.code_shape),
+                 d_values=dim//n_heads),
             dim,
             ff_dim,
             dropout=dropout,
@@ -96,13 +90,10 @@ class Generator(nn.Module):
     pos_emb = self.pos_emb(torch.arange(seq_len, device=x.device).unsqueeze(0).expand(N,seq_len))
     x = self.dropout(x + pos_emb)
     
-    pos_codes = self.spe_encoder([x.shape[0], x.shape[1]])
-    
     for cond_layer, layer in zip(self.cond_layers, self.transformer):
       #cond_emb = cond_layer(cond)
-      #x = x + cond_emb
-      
-      x = layer(x, attn_mask=fast_transformers.masking.TriangularCausalMask(seq_len, device=x.device), pos_codes=pos_codes)#, pos_emb = layer_pos_emb, **kwargs)
+      #x = x + cond_emb      
+      x = layer(x, attn_mask=fast_transformers.masking.TriangularCausalMask(seq_len, device=x.device), rotary=self.rotary)#, pos_emb = layer_pos_emb, **kwargs)
       
     # norm and to logits
     x = self.norm(x)

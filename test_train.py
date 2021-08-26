@@ -43,10 +43,10 @@ transformer_gen = Generator(vocab_size, model_hps['max_seq_len'], model_hps['dim
 transformer_disc = Discriminator(vocab_size, model_hps['max_seq_len'], model_hps['dim'], model_hps['n_layers'],
                             model_hps['n_heads'], model_hps['ff_dim'], cond=False, cond_dim=1).to(device)
 
-'''
+
 data = next(iter(dataloader))['inputs'].to(device)
 transformer_gen(data)
-'''
+
 #transformer_disc(F.one_hot(data, num_classes = vocab_size))
 
 print(device)
@@ -59,4 +59,4 @@ gan_loss = wgan_loss
 trainer = TransformerTrainer(transformer_gen, transformer_disc, dataloader, None, ce_loss, gan_loss, device, 
                             train_hps['lr'], vocab_size, total_iters=train_hps['total_iters'])
 
-history = trainer.train(10, checkpoint_dir, validate=False, log_interval=40, load=False, save=False, change_lr=False, train_gan=False)
+history = trainer.train(20, checkpoint_dir, validate=False, log_interval=40, load=False, save=False, change_lr=False, train_gan=False)
