@@ -118,27 +118,31 @@ class Discriminator(nn.Module):
   ):
     super(Discriminator, self).__init__()
     self.model_type = 'Transformer'
+   
+    self.vocab_size = num_tokens 
     self.embed_size = dim
 
     self.cond = cond
     self.cond_dim = cond_dim
     self.src_mask = None
-
+    
     #self.embedding = nn.Embedding(num_tokens, dim)
     self.embedding = nn.Linear(num_tokens, dim)
 
     self.pos_emb = nn.Embedding(max_seq_len, dim)
     self.cond_embedding = nn.Embedding(cond_dim, dim)
+
+    self.rotary = Rotary(dim=dim//n_heads)
    
     self.transformer = nn.ModuleList(
     [
-        TransformerEncoderLayer(
-            AttentionLayer(LinearAttention(dim//n_heads), dim, n_heads, d_keys=dim//n_heads,
+        RelativeTransformerEncoderLayer(
+            RelativeAttentionLayer(LinearAttention(dim//n_heads), dim, n_heads, d_keys=dim//n_heads,
                  d_values=dim//n_heads),
             dim,
             ff_dim,
             dropout=dropout,
-            activation="gelu"            
+            activation="gelu"                     
         ) for l in range(n_layers)
     ])
     
@@ -162,19 +166,19 @@ class Discriminator(nn.Module):
     #src = self.embedding(input)*math.sqrt(self.d_model)
     #src = self.pos_encoder(src)
     # cond = F.one_hot(cond.long(), self.cond_dim).float()
-    
+    cls = F.one_hot(torch.full([inputs.shape[0], 1], self.vocab_size-1, device=inputs.device), num_classes=inputs.shape[-1]).float()
+    x = torch.cat((cls, inputs), dim = 1)
        
-    x = self.embedding(inputs.float())    
+    x = self.embedding(x.float())    
     N, seq_len,_ = x.shape
 
     pos_emb = self.pos_emb(torch.arange(seq_len, device=x.device).unsqueeze(0).expand(N,seq_len))
     x = self.dropout(x + pos_emb)
 
-
     for layer in self.transformer:
       #cond_emb = cond_layer(cond)
       #x = x + cond_emb
-      x = layer(x)#, pos_emb = layer_pos_emb, **kwargs)
+      x = layer(x, rotary=self.rotary)#, pos_emb = layer_pos_emb, **kwargs)
       
     # norm and to logits
     x = self.norm(x)

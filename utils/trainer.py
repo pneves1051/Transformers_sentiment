@@ -6,7 +6,7 @@ import torch
 import torch.nn.functional as F
 
 class TransformerTrainer():
-  def __init__(self, generator, discriminator, dataloader, valid_dataloader, ce_loss, gan_loss, device, lr,
+  def __init__(self, generator, discriminator, dataloader, valid_dataloader, ce_loss, gan_loss, device, g_lr, d_lr,
                vocab_size, d_iters=5, total_iters=100000, temperature=100, gan_hp = 1, accumulation_steps=1):
     self.generator = generator
     self.discriminator = discriminator
@@ -17,8 +17,8 @@ class TransformerTrainer():
     self.gan_loss = gan_loss
     self.device=device
     
-    self.g_optimizer = torch.optim.AdamW(self.generator.parameters(), lr = lr)#, betas=(0.9, 0.98))
-    self.d_optimizer = torch.optim.AdamW(self.discriminator.parameters(), lr = lr)#, betas=(0.9, 0.98))
+    self.g_optimizer = torch.optim.AdamW(self.generator.parameters(), lr = g_lr)#, betas=(0.9, 0.98))
+    self.d_optimizer = torch.optim.AdamW(self.discriminator.parameters(), lr = d_lr)#, betas=(0.9, 0.98))
 
     self.vocab_size = vocab_size
     self.d_iters = d_iters
@@ -161,7 +161,6 @@ class TransformerTrainer():
         p.requires_grad = False      
       
       temperature=self.get_temperature()
-      print(temperature)
       fake, fake_gumbel = self.generator(inputs, conds, temperature)
       d_fake = self.discriminator(fake_gumbel, conds)
 
@@ -315,7 +314,7 @@ class TransformerTrainer():
     checkpoint = torch.load(checkpoint_dir + 'tr_checkpoint.pth', map_location='cpu')
     self.generator.load_state_dict(checkpoint['generator'])
     self.g_optimizer.load_state_dict(checkpoint['g_optimizer'])
-    self.discriminator.load_state_dict(checkpoint['discrminator'])
+    self.discriminator.load_state_dict(checkpoint['discriminator'])
     self.d_optimizer.load_state_dict(checkpoint['d_optimizer'])
   
   def save_checkpoint(self, checkpoint_dir):

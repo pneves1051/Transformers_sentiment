@@ -1,5 +1,6 @@
 import itertools
 import os
+import time
 from re import S
 import itertools
 import pickle
@@ -27,7 +28,9 @@ class MidiEncoder():
                                      pitch_transpose_range[-1]+1))
         
         self.augment_params = [(s, t) for s in self.strech_factors for t in self.transpose_amounts]
-        
+
+        self.encoded_sequences = {'ids':[], 'sequences': []}
+                
     def make_vocab(self):
         vocab = defaultdict(list)
         items = 0
@@ -63,6 +66,7 @@ class MidiEncoder():
         
     def encode_midi_file(self, midi_file, strech_factor=1, transpose_amount=0):
         note_sequence = note_seq.midi_file_to_note_sequence(midi_file)
+        
         note_sequence = note_seq.apply_sustain_control_changes(note_sequence)
         del note_sequence.control_changes[:]
 
@@ -166,19 +170,24 @@ class MidiEncoder():
         return augmented_note_sequence 
 
     def encode_midi_list(self, midi_list, pkl_path=None):
-        encoded_sequences = {'ids':[], 'sequences': []}
         for midi_file in midi_list:
             print(midi_file)
             root, ext = os.path.splitext(os.path.basename(midi_file))
             for sf, ta in self.augment_params:
-                encoded_sequences['ids'].append(root + '_' + str(sf) + '_' + str(ta) + ext)
+                self.encoded_sequences['ids'].append(root + '_' + str(sf) + '_' + str(ta) + ext)
+                time0 = time.time()
+                
                 encoded_sequence = self.encode_midi_file(midi_file, sf, ta)
-                encoded_sequences['sequences'].append(encoded_sequence)
+                
+                print(time.time()-time0)
+                self.encoded_sequences['sequences'].append(encoded_sequence)
         
         if pkl_path is not None:
             with open(pkl_path, 'wb') as handle:
-                pickle.dump(encoded_sequences, handle, protocol=pickle.HIGHEST_PROTOCOL)
-        return encoded_sequences
+                pickle.dump(self.encoded_sequences, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        return self.encoded_sequences
+
+
 
 
 

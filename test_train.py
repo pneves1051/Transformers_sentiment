@@ -34,7 +34,7 @@ dataset = TransformerDataset(encoding_list, data_hps['seq_len'])
 dataloader = torch.utils.data.DataLoader(dataset, batch_size=data_hps['batch_size'], shuffle=True,
                                          num_workers=data_hps['num_workers'], pin_memory=True) 
 
-vocab_size = encoder.vocab_size
+vocab_size = encoder.vocab_size + 1 # [CLS] token is the extra token
 model_hps = hps['model']
 #device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 device = 'cpu'
@@ -56,7 +56,8 @@ train_hps = hps['training']
 ce_loss = nn.CrossEntropyLoss()
 gan_loss = wgan_loss
 
-trainer = TransformerTrainer(transformer_gen, transformer_disc, dataloader, None, ce_loss, gan_loss, device, 
-                            train_hps['lr'], vocab_size, total_iters=train_hps['total_iters'])
+trainer = TransformerTrainer(transformer_gen, transformer_disc, dataloader, None, ce_loss, gan_loss, device,  
+                            train_hps['g_lr'], train_hps['d_lr'], vocab_size, d_iters = train_hps['d_iters'], total_iters=train_hps['total_iters'],
+                            temperature=train_hps['temperature'], gan_hp=train_hps['gan_hp'])
 
-history = trainer.train(20, checkpoint_dir, validate=False, log_interval=40, load=False, save=False, change_lr=False, train_gan=False)
+history = trainer.train(20, checkpoint_dir, validate=False, log_interval=40, load=False, save=False, change_lr=False, train_gan=True)
