@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from data.process_data import MidiEncoder
 from data.dataset import TransformerDataset
-from model.transformer import Generator, Discriminator
+from model.transformer import Generator, Discriminator, PatchDiscriminator
 from utils.trainer import TransformerTrainer
 from utils.losses import wgan_loss
 
@@ -34,14 +34,14 @@ dataset = TransformerDataset(encoding_list, data_hps['seq_len'])
 dataloader = torch.utils.data.DataLoader(dataset, batch_size=data_hps['batch_size'], shuffle=True,
                                          num_workers=data_hps['num_workers'], pin_memory=True) 
 
-vocab_size = encoder.vocab_size + 1 # [CLS] token is the extra token
+vocab_size = encoder.vocab_size # [CLS] token is the extra token
 model_hps = hps['model']
 #device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 device = 'cpu'
 transformer_gen = Generator(vocab_size, model_hps['max_seq_len'], model_hps['dim'], model_hps['n_layers'],
                             model_hps['n_heads'], model_hps['ff_dim'], cond=False, cond_dim=1).to(device)
-transformer_disc = Discriminator(vocab_size, model_hps['max_seq_len'], model_hps['dim'], model_hps['n_layers'],
-                            model_hps['n_heads'], model_hps['ff_dim'], cond=False, cond_dim=1).to(device)
+transformer_disc = PatchDiscriminator(vocab_size, model_hps['max_seq_len'], model_hps['dim'], model_hps['n_layers'],
+                            model_hps['n_heads'], model_hps['ff_dim'], cond=False, cond_dim=1, patch_size=model_hps['patch_size']).to(device)
 
 
 data = next(iter(dataloader))['inputs'].to(device)

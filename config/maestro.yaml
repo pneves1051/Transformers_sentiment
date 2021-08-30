@@ -16,6 +16,7 @@ model:
   n_layers: 6
   n_heads: 8
   ff_dim: 1024
+  patch_size: 16
 
 training:
   d_lr: 0.0003
