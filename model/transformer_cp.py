@@ -21,7 +21,6 @@ class CPEmbedding(nn.Module):
   def forward(self, x):
     return self.emb(x) * math.sqrt(self.d_model)
 
-
 class CPLinear(nn.Module):
   def __init__(self, n_token, d_model):
     super(CPLinear, self).__init__()
@@ -54,45 +53,45 @@ class MultiEmbedding(nn.Module):
   def __init__(self, n_tokens_dict, d_emb_dict):
     super(MultiEmbedding, self).__init__()
 
-    self.embs = {k: CPEmbedding(v1, v2)  \
-                for (k, v1), v2 in zip(n_tokens_dict.items(), d_emb_dict.values())}
+    self.embs = nn.ModuleDict({k: CPEmbedding(v1, v2)  \
+                for (k, v1), v2 in zip(n_tokens_dict.items(), d_emb_dict.values())})
     
     #self.embedding_list= nn.ModuleList([CPEmbedding(n_t, e_s) for n_t, e_s in zip(n_token_list, d_emb_list)])
 
   def forward(self, x):
     
-    emb_tempo = self.embs['tempo'](x[..., 0])
-    emb_chord = self.embs['chord'](x[..., 1])
-    emb_barbeat = self.embs['barbeat'](x[..., 2])
-    emb_type = self.embs['type'](x[..., 3])
-    emb_pitch = self.embs['pitch'](x[..., 4])
-    emb_duration = self.embs['duration'](x[..., 5])
-    emb_velocity = self.embs['velocity'](x[..., 6])
+    emb_tempo = self.embs['tempo_key'](x[..., 0])
+    emb_chord = self.embs['chord_key'](x[..., 1])
+    emb_barbeat = self.embs['barbeat_key'](x[..., 2])
+    emb_type = self.embs['type_key'](x[..., 3])
+    emb_pitch = self.embs['pitch_key'](x[..., 4])
+    emb_duration = self.embs['duration_key'](x[..., 5])
+    emb_velocity = self.embs['velocity_key'](x[..., 6])
     
     embs = torch.cat([emb_tempo, emb_chord, emb_barbeat, emb_type,
                       emb_pitch, emb_duration, emb_velocity], dim=-1)
 
-    return embs, emb_type
+    return embs
 
 
 class MultiEmbeddingLinear(nn.Module):
   def __init__(self, n_tokens_dict, d_emb_dict):
     super(MultiEmbeddingLinear, self).__init__()
 
-    self.embs = {k: CPLinear(v1, v2)  \
-                for (k, v1), v2 in zip(n_tokens_dict.items(), d_emb_dict.values())}
+    self.embs = nn.ModuleDict({k: CPLinear(v1, v2)  \
+                for (k, v1), v2 in zip(n_tokens_dict.items(), d_emb_dict.values())})
     
     #self.embedding_list= nn.ModuleList([CPEmbedding(n_t, e_s) for n_t, e_s in zip(n_token_list, d_emb_list)])
 
   def forward(self, x):
 
-    emb_tempo = self.embs['tempo'](x[0])
-    emb_chord = self.embs['chord'](x[1])
-    emb_barbeat = self.embs['barbeat'](x[2])
-    emb_type = self.embs['type'](x[3])
-    emb_pitch = self.embs['pitch'](x[4])
-    emb_duration = self.embs['duration'](x[5])
-    emb_velocity = self.embs['velocity'](x[6])
+    emb_tempo = self.embs['tempo_key'](x[0])
+    emb_chord = self.embs['chord_key'](x[1])
+    emb_barbeat = self.embs['barbeat_key'](x[2])
+    emb_type = self.embs['type_key'](x[3])
+    emb_pitch = self.embs['pitch_key'](x[4])
+    emb_duration = self.embs['duration_key'](x[5])
+    emb_velocity = self.embs['velocity_key'](x[6])
 
     embs = torch.cat([emb_tempo, emb_chord, emb_barbeat, emb_type,
                       emb_pitch, emb_duration, emb_velocity], dim=-1)
@@ -104,7 +103,7 @@ class MultiProj(nn.Module):
   def __init__(self, d_model, n_tokens_dict, emb_type_size=32):
     super(MultiProj, self).__init__()
 
-    self.projs = {k: CPLinear(d_model, v) for k, v in n_tokens_dict.items()}
+    self.projs = nn.ModuleDict({k: CPLinear(d_model, v) for k, v in n_tokens_dict.items()})
 
     self.project_concat_type = nn.Linear(d_model + emb_type_size, d_model)
 
@@ -113,13 +112,13 @@ class MultiProj(nn.Module):
     # For inference, type embed is sampled first, then given as conditioning
     # When inferencing, proj_type is calculated before
     if proj_type is None:
-      proj_type = self.projs['type'](x)
+      proj_type = self.projs['type_key'](x)
     
     x = torch.cat([x, emb_type], dim=-1)
     x = self.project_concat_type(x)
     
-    projs = [self.projs['tempo'](x), self.projs['chord'](x), self.projs['barbeat'](x),
-            proj_type, self.projs['pitch'](x), self.projs['duration'](x), self.projs['velocity'](x)]
+    projs = [self.projs['tempo_key'](x), self.projs['chord_key'](x), self.projs['barbeat_key'](x),
+            proj_type, self.projs['pitch_key'](x), self.projs['duration_key'](x), self.projs['velocity_key'](x)]
       
     return projs
 
@@ -173,7 +172,7 @@ class Generator(nn.Module):
     self.norm = nn.LayerNorm(d_model)
 
     # It is necessary to get the type embedding layer from the embeddings
-    self.to_out = MultiProj(d_model, n_tokens, emb_type_size=emb_sizes['type'])   
+    self.to_out = MultiProj(d_model, n_tokens, emb_type_size=emb_sizes['type_key'])   
 
     self.gumbel_dist = torch.distributions.gumbel.Gumbel(loc=0, scale=1)
 
@@ -199,15 +198,16 @@ class Generator(nn.Module):
 
   def sample_type(self, x, temperature=1, top_k_idx=0, top_p_prob=0.9):
     # For use in inference
-    proj_type = self.to_out.projs['type'](x)
+    proj_type = self.to_out.projs['type_key'](x)
     sampled_type = sample(proj_type, temperature, top_k_idx, top_p_prob)
-    emb_type = self.embedding.embs['type'](sampled_type)
+    emb_type = self.embedding.embs['type_key'](sampled_type)
     
     return emb_type, proj_type
   
   def forward(self, inputs, target=None, cond=None, temperature = 1, mask=None, **kwargs):    
     # Target not None when training(type conditioning)
-    x, emb_type = self.embedding(inputs) 
+    print(inputs.device)
+    x = self.embedding(inputs) 
     
     x = self.in_linear(x)   
     
@@ -226,7 +226,7 @@ class Generator(nn.Module):
     
     # When targetis given, type conditioning comes from it
     if target is not None:
-      out = self.to_out(x, self.embedding.embs['type'](target[...,3]))
+      out = self.to_out(x, self.embedding.embs['type_key'](target[...,3]))
     else:
       # for inference, the type proj has been calculated in self.sample
       emb_type, proj_type = self.sample_type(x)

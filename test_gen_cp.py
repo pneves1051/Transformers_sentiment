@@ -23,8 +23,8 @@ dataloader = torch.utils.data.DataLoader(dataset, batch_size=data_hps['batch_siz
 
 # [CLS] token is the extra token
 model_hps = hps['model']
-#device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-device = 'cpu'
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+#device = 'cpu'
 transformer_gen = Generator(data_hps['vocab_size'], model_hps['emb_sizes'], model_hps['d_model'], model_hps['max_seq_len'], model_hps['n_layers'],
                             model_hps['n_heads'], model_hps['ff_dim'], cond=False, cond_dim=1).to(device)
 

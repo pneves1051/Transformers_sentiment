@@ -9,11 +9,11 @@ data:
   stretch_factors: [1.0]
   pitch_transpose_range: [0] 
   batch_size: 1
-  vocab_size: {'tempo': 56, 'chord': 135, 'barbeat': 18, 'type': 3, 'pitch': 87, 'duration': 18, 'velocity': 41}
+  vocab_size: {'tempo_key': 56, 'chord_key': 135, 'barbeat_key': 18, 'type_key': 3, 'pitch_key': 87, 'duration_key': 18, 'velocity_key': 41}
 
     
 model:
-  emb_sizes: {'tempo': 128, 'chord': 256, 'barbeat': 64, 'type': 32, 'pitch': 512, 'duration': 128, 'velocity': 128}
+  emb_sizes: {'tempo_key': 128, 'chord_key': 256, 'barbeat_key': 64, 'type_key': 32, 'pitch_key': 512, 'duration_key': 128, 'velocity_key': 128}
   d_model: 128
   max_seq_len: 8192
   n_layers: 6

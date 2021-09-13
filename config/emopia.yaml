@@ -5,15 +5,15 @@ data:
   min_pitch: 0
   max_pitch: 127 
   seq_len: 128
-  num_workers: 0 
+  num_workers: 4
   stretch_factors: [1.0]
   pitch_transpose_range: [0] 
-  batch_size: 1
-  vocab_size: [56, 135, 18, 3, 87, 18, 41]
+  batch_size: 8
+  vocab_size: {'tempo_key': 56, 'chord_key': 135, 'barbeat_key': 18, 'type_key': 3, 'pitch_key': 87, 'duration_key': 18, 'velocity_key': 41}
 
     
 model:
-  emb_sizes: [128, 256, 64, 32, 512, 128, 128]
+  emb_sizes: {'tempo_key': 128, 'chord_key': 256, 'barbeat_key': 64, 'type_key': 32, 'pitch_key': 512, 'duration_key': 128, 'velocity_key': 128}
   d_model: 128
   max_seq_len: 8192
   n_layers: 6
