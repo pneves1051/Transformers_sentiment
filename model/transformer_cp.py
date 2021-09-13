@@ -206,7 +206,6 @@ class Generator(nn.Module):
   
   def forward(self, inputs, target=None, cond=None, temperature = 1, mask=None, **kwargs):    
     # Target not None when training(type conditioning)
-    print(inputs.device)
     x = self.embedding(inputs) 
     
     x = self.in_linear(x)   

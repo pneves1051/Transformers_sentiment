@@ -37,7 +37,7 @@ def top_p(probs, p):
   # stores the indices that will not be zeroed
   top_p_idx = torch.zeros_like(probs).long()
   # to check if probability threshold is crossed
-  p_s = torch.zeros(*probs.shape[:-1])
+  p_s = torch.zeros(*probs.shape[:-1], device = probs.device)
   probs_c = probs.clone()
   while torch.any(p_s <= p):
     # largest number and its corresponding index
