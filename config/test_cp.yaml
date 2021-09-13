@@ -8,7 +8,7 @@ data:
   num_workers: 0 
   stretch_factors: [1.0]
   pitch_transpose_range: [0] 
-  batch_size: 1
+  batch_size: 2
   vocab_size: {'tempo_key': 56, 'chord_key': 135, 'barbeat_key': 18, 'type_key': 3, 'pitch_key': 87, 'duration_key': 18, 'velocity_key': 41}
 
     

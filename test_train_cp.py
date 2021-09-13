@@ -34,9 +34,11 @@ transformer_disc = PatchDiscriminator(data_hps['vocab_size'],  model_hps['emb_si
                             model_hps['n_heads'], model_hps['ff_dim'], cond=False, cond_dim=1, patch_size=model_hps['patch_size']).to(device)
 
 
-data = next(iter(dataloader))['inputs'].to(device)
-transformer_gen(data)
-transformer_disc(data)
+data = next(iter(dataloader))
+inputs = data['inputs'].to(device)
+targets = data['targets'].to(device)
+transformer_gen(inputs, target=targets)
+transformer_disc(inputs)
 
 #transformer_disc(F.one_hot(data, num_classes = vocab_size))
 
@@ -53,4 +55,4 @@ trainer = TransformerTrainer(transformer_gen, transformer_disc, dataloader, None
                               d_iters = train_hps['d_iters'], total_iters=train_hps['total_iters'],
                             temperature=train_hps['temperature'], gan_hp=train_hps['gan_hp'])
 
-history = trainer.train(20, checkpoint_dir, validate=False, log_interval=5, load=False, save=False, change_lr=False, train_gan=True)
+history = trainer.train(20, checkpoint_dir, validate=False, log_interval=5, load=False, save=False, change_lr=False, train_gan=False)

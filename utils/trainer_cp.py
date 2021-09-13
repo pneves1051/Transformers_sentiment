@@ -52,7 +52,7 @@ class TransformerTrainer():
         b_size, seq_len, n_types = targets.shape
         total_size = b_size*seq_len
      
-      outputs,_= self.generator(inputs, targets, conds)
+      outputs,_= self.generator(inputs, target=targets, cond=conds)
       #mask = torch.ones_like(inputs).bool()
       #outputs = self.generator(inputs, mask=mask)
       
@@ -74,7 +74,7 @@ class TransformerTrainer():
 
       preds = torch.stack([torch.argmax(F.softmax(o, dim=-1), dim = -1) for o in outputs], dim=-1)
       
-      correct_predictions = [cp + torch.sum(p == t).item() for cp, p, t in zip(correct_predictions, preds.permute(2, 0, 1), targets.transpose(2, 0, 1))]
+      correct_predictions = [cp + torch.sum(p == t).item() for cp, p, t in zip(correct_predictions, preds.permute(2, 0, 1), targets.permute(2, 0, 1))]
       acc_list = [round(c/((index+1)*total_size), 4) for c in correct_predictions]
 
       #print(set(preds.reshape(-1).tolist()))
@@ -128,7 +128,7 @@ class TransformerTrainer():
       
       for _ in range(self.d_iters):
         
-        d_real = self.discriminator(inputs, conds, to_one_hot = True)
+        d_real = self.discriminator(inputs, cond=conds, to_one_hot = True)
         
         temperature = self.get_temperature()
         fake, fake_gumbel = self.generator(inputs, target=targets, cond=conds, temperature=temperature)
@@ -272,11 +272,11 @@ class TransformerTrainer():
           b_size, seq_len, n_types = targets.shape
           total_size = b_size*seq_len
   
-        outputs, _ = self.generator(inputs, conds)
+        outputs, _ = self.generator(inputs, target=targets, cond=conds)
         #mask = torch.ones_like(inputs).bool()
         #outputs = self.generator(inputs, mask=mask)
         
-        eval_loss = self.ce_loss(outputs.permute(0, 2, 1), targets, loss_mask)
+        eval_loss = self.ce_loss(outputs, targets, loss_mask)
         
         preds = torch.argmax(F.softmax(outputs, dim=-1), dim = -1)
         correct_predictions = [cp + torch.sum(p == t).item() for cp, p, t in zip(correct_predictions, preds.permute(2, 0, 1), targets.permute(2, 0, 1))]
