@@ -224,7 +224,6 @@ class PatchDiscriminator(nn.Module):
     self.embedding = nn.Linear(num_tokens, dim)
 
     self.pos_emb = nn.Embedding(max_seq_len, dim)
-    self.cond_embedding = nn.Embedding(cond_dim, dim)
 
     self.cls_token = nn.Parameter(torch.randn(1, 1, dim))
 
@@ -243,9 +242,10 @@ class PatchDiscriminator(nn.Module):
     ])
     
     self.dropout = nn.Dropout(dropout)
-    
     self.norm = nn.LayerNorm(dim)
-    self.to_out = nn.Linear(dim, num_tokens)   
+    
+    self.cond_embedding = nn.Linear(cond_dim, dim)
+    self.to_out = nn.Linear(dim, 1)   
    
 
   def generate_square_subsequent_mask(self, sz, device):
@@ -292,7 +292,9 @@ class PatchDiscriminator(nn.Module):
     x = self.norm(x)
 
     out_class = x[:, 0]
-    out_class = self.to_out(out_class)
-    #out = self.to_out(x)
+    out = self.to_out(out_class)
+    if cond is not None:
+      cond_proj = torch.sum(self.cond_embedding(cond)*out_class, dim=1, keepdim=True)
+      out += cond_proj
 
-    return out_class
+    return out

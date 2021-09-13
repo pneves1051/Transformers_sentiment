@@ -1,0 +1,30 @@
+---
+data:
+  steps_per_sec: 100
+  num_vel_bins: 32
+  min_pitch: 0
+  max_pitch: 127 
+  seq_len: 128
+  num_workers: 0 
+  stretch_factors: [1.0]
+  pitch_transpose_range: [0] 
+  batch_size: 1
+  vocab_size: {'tempo': 56, 'chord': 135, 'barbeat': 18, 'type': 3, 'pitch': 87, 'duration': 18, 'velocity': 41}
+
+    
+model:
+  emb_sizes: {'tempo': 128, 'chord': 256, 'barbeat': 64, 'type': 32, 'pitch': 512, 'duration': 128, 'velocity': 128}
+  d_model: 128
+  max_seq_len: 8192
+  n_layers: 6
+  n_heads: 8
+  ff_dim: 512
+  patch_size: 16
+
+training:
+  d_lr: 0.0003
+  g_lr: 0.0001
+  d_iters: 1
+  temperature: 100
+  gan_hp: 1
+  total_iters: 1000

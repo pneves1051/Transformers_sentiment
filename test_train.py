@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from data.process_data import MidiEncoder
-from data.dataset import TransformerDataset
+from data.dataset import TransformerDataset, TransformerDataset2
 from model.transformer import Generator, Discriminator, PatchDiscriminator
 from utils.trainer import TransformerTrainer
 from utils.losses import wgan_loss
@@ -30,6 +30,8 @@ encoding_list = encoder.encode_midi_list(midi_list)
 print('Encoded')
 
 dataset = TransformerDataset(encoding_list, data_hps['seq_len'])
+#dataset = TransformerDataset2(encoding_list, data_hps['seq_len'], pad_token=encoder.events_to_ids['TIME_SHIFT_1'])
+
 
 dataloader = torch.utils.data.DataLoader(dataset, batch_size=data_hps['batch_size'], shuffle=True,
                                          num_workers=data_hps['num_workers'], pin_memory=True) 
@@ -60,4 +62,4 @@ trainer = TransformerTrainer(transformer_gen, transformer_disc, dataloader, None
                             train_hps['g_lr'], train_hps['d_lr'], vocab_size, d_iters = train_hps['d_iters'], total_iters=train_hps['total_iters'],
                             temperature=train_hps['temperature'], gan_hp=train_hps['gan_hp'])
 
-history = trainer.train(20, checkpoint_dir, validate=False, log_interval=40, load=False, save=False, change_lr=False, train_gan=True)
+history = trainer.train(20, checkpoint_dir, validate=False, log_interval=40, load=False, save=False, change_lr=False, train_gan=False)

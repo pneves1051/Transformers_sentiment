@@ -9,6 +9,7 @@ from note_seq.musicxml_parser import ChordSymbol
 import numpy as np
 import note_seq
 from collections import defaultdict
+from utils.scores import pitch_count, note_count, note_range, average_inter_onset_interval, average_pitch_interval
 
 # Adapted from https://github.com/magenta/note-seq/blob/master/note_seq/performance_encoder_decoder.py
 # and https://github.com/amazon-research/transformer-gan/blob/main/data/performance_event_repo.py
@@ -185,8 +186,30 @@ class MidiEncoder():
         if pkl_path is not None:
             with open(pkl_path, 'wb') as handle:
                 pickle.dump(self.encoded_sequences, handle, protocol=pickle.HIGHEST_PROTOCOL)
-        return self.encoded_sequences
+        return self.encoded_sequences   
 
+    def calculate_scores(self, midi_file, which_scores='all'):
+        if type(midi_file) == str:
+            midi_file = [midi_file]
+        if which_scores == 'all':
+            func_list = [pitch_count, note_count, note_range, average_inter_onset_interval, average_pitch_interval]
+        else:
+            func_list  = {func.__name__: [] for func in which_scores}
+             
+            
+        scores = {func.__name__: [] for func in func_list}
+        for filename in midi_file:
+                for func in func_list:
+                    scores[func.__name__].append(func(filename, self.min_pitch, self.max_pitch) if func.__name__ is not 'average_inter_onset_interval' else \
+                                            average_inter_onset_interval(self.min_pitch, self.max_pitch, self.steps_per_sec))
+    
+          
+        return scores
+        
+            
+class CPEncoder():
+    def __init__():
+        a =1
 
 
 
