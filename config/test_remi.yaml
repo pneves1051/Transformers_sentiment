@@ -1,0 +1,21 @@
+---
+data:
+  num_workers: 0
+  seq_len: 128
+  batch_size: 1
+    
+model:
+  max_seq_len: 8192
+  dim: 128
+  n_layers: 6
+  n_heads: 8
+  ff_dim: 512
+  patch_size: 16
+
+training:
+  d_lr: 0.0003
+  g_lr: 0.0001
+  d_iters: 1
+  temperature: 100
+  gan_hp: 1
+  total_iters: 1000

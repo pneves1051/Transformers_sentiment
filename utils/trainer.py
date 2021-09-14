@@ -41,14 +41,17 @@ class TransformerTrainer():
       inputs = data['inputs'].to(self.device)
       targets = data['targets'].to(self.device)
 
-      conds = data['conditions']
-      if conds[0] is not float('nan'):
-        conds = conds.to(self.device)
+      if 'conditions' in data:
+        conds = data['conditions'].to(self.device)
+      else:
+        conds = None
 
       if index == 0:
         b_size, seq_len = targets.shape
      
       outputs,_= self.generator(inputs, conds)
+      #mask = torch.ones_like(inputs).bool()
+      #outputs = self.generator(inputs, mask=mask)
       
       '''
       clone_out = outputs.clone()
@@ -106,9 +109,10 @@ class TransformerTrainer():
       inputs = data['inputs'].to(self.device)
       targets = data['targets'].to(self.device)
 
-      conds = data['conditions']
-      if conds[0] is not float('nan'):
-        conds = conds.to(self.device)
+      if 'conditions' in data:
+        conds = data['conditions'].to(self.device)
+      else:
+        conds = None
 
       if index == 0:
         b_size, seq_len = targets.shape
@@ -228,7 +232,7 @@ class TransformerTrainer():
 
     if change_lr:
       new_tr_lr = 1e-5
-      for param_group in self.optimizer.param_groups:
+      for param_group in self.g_optimizer.param_groups:
         param_group['lr'] = new_tr_lr
     
     for epoch in range(EPOCHS):
@@ -278,23 +282,21 @@ class TransformerTrainer():
         targets = data['targets'].to(self.device)
         conds = data['conditions']
         
-        if conds[0] is not float('nan'):
-          conds = conds.to(self.device)
+        if 'conditions' in data:
+          conds = data['conditions'].to(self.device)
+        else:
+          conds = None
 
         if index == 0:
           b_size, seq_len = targets.shape
+  
+        outputs, _ = self.generator(inputs, conds)
+        #mask = torch.ones_like(inputs).bool()
+        #outputs = self.generator(inputs, mask=mask)
         
-        if self.hf:
-          outputs = self.generator(inputs)['logits'].transpose(-1,-2)#, mask)['logits']
-        elif self.pf:
-          mask = torch.ones_like(inputs).bool()
-          outputs = self.generator(inputs, mask=mask).transpose(-1,-2)
-        else:
-          outputs = self.generator(inputs, conds).transpose(-1, -2)#, conds).transpose(-1, -2)
-
-        eval_loss = self.ce_loss(outputs, targets)
+        eval_loss = self.ce_loss(outputs.permute(0, 2, 1), targets)
         
-        preds = torch.argmax(F.softmax(outputs, dim=1), dim = 1)
+        preds = torch.argmax(F.softmax(outputs, dim=-1), dim = -1)
         eval_correct_predictions += torch.sum(preds == targets)
         eval_losses.append(eval_loss.item())
                 
@@ -325,3 +327,4 @@ class TransformerTrainer():
             'd_optimizer': self.d_optimizer.state_dict()}
         
     torch.save(checkpoint, checkpoint_dir + 'tr_checkpoint.pth')
+

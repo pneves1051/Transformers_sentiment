@@ -14,11 +14,11 @@ data:
     
 model:
   emb_sizes: {'tempo_key': 128, 'chord_key': 256, 'barbeat_key': 64, 'type_key': 32, 'pitch_key': 512, 'duration_key': 128, 'velocity_key': 128}
-  d_model: 128
+  d_model: 512
   max_seq_len: 8192
   n_layers: 6
   n_heads: 8
-  ff_dim: 512
+  ff_dim: 2048
   patch_size: 16
 
 training:

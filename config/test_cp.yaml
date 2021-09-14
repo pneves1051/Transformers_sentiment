@@ -5,7 +5,7 @@ data:
   min_pitch: 0
   max_pitch: 127 
   seq_len: 128
-  num_workers: 0 
+  num_workers: 0 git 
   stretch_factors: [1.0]
   pitch_transpose_range: [0] 
   batch_size: 2

@@ -1,15 +1,18 @@
 import itertools
 import os
+import glob
 import time
+from collections import Counter
 from re import S
 import itertools
-import pickle
+import pickle as pkl
 from note_seq.chord_symbols_lib import ChordSymbolError
 from note_seq.musicxml_parser import ChordSymbol
 import numpy as np
 import note_seq
 from collections import defaultdict
-from utils.scores import pitch_count, note_count, note_range, average_inter_onset_interval, average_pitch_interval
+#from utils.scores import pitch_count, note_count, note_range, average_inter_onset_interval, average_pitch_interval
+from utils import remi_utils
 
 # Adapted from https://github.com/magenta/note-seq/blob/master/note_seq/performance_encoder_decoder.py
 # and https://github.com/amazon-research/transformer-gan/blob/main/data/performance_event_repo.py
@@ -183,9 +186,9 @@ class MidiEncoder():
                 print(time.time()-time0)
                 self.encoded_sequences['sequences'].append(encoded_sequence)
         
-        if pkl_path is not None:
+        if pkl_path != None:
             with open(pkl_path, 'wb') as handle:
-                pickle.dump(self.encoded_sequences, handle, protocol=pickle.HIGHEST_PROTOCOL)
+                pkl.dump(self.encoded_sequences, handle, protocol=pkl.HIGHEST_PROTOCOL)
         return self.encoded_sequences   
 
     def calculate_scores(self, midi_file, which_scores='all'):
@@ -200,20 +203,105 @@ class MidiEncoder():
         scores = {func.__name__: [] for func in func_list}
         for filename in midi_file:
                 for func in func_list:
-                    scores[func.__name__].append(func(filename, self.min_pitch, self.max_pitch) if func.__name__ is not 'average_inter_onset_interval' else \
+                    scores[func.__name__].append(func(filename, self.min_pitch, self.max_pitch) if func.__name__ != 'average_inter_onset_interval' else \
                                             average_inter_onset_interval(self.min_pitch, self.max_pitch, self.steps_per_sec))
     
-          
         return scores
         
+
+class MIDIEncoderREMI():
+    def __init__(self, dict_path, midi_files_list=None):
+
+        if os.path.isfile(dict_path):
+           with open(dict_path, 'rb') as f:
+                self.events2words, self.words2events = pkl.load(f)
+        else:
+            self.events2words, self.words2events = self.create_dict(midi_files_list)
+            with open(dict_path, 'wb') as f:
+                pkl.dump((self.events2words, self.words2events), f)
+
+        self.vocab_size = len(self.words2events.keys())
+
+    def create_dict(self, midi_files_list):
+        all_elements= []
+        for midi_file in midi_files_list:
+            events = self.convert_midi_to_remi_events(midi_file)
+            for event in events:
+                element = '{}_{}'.format(event.name, event.value)
+                all_elements.append(element)
+
+        counts = Counter(all_elements)
+        events2words = {c: i for i, c in enumerate(counts.keys())}
+        words2events = {i: c for i, c in enumerate(counts.keys())}
+
+        return events2words, words2events        
+
+    def convert_midi_to_remi_events(self, midi_file, chord=False):
+        note_items, tempo_items = remi_utils.read_items(midi_file)
+        note_items = remi_utils.quantize_items(note_items)
+        max_time = note_items[-1].end
+        if chord:
+            chord_items = remi_utils.extract_chords(note_items)
+            items = chord_items + tempo_items + note_items
+        else:
+            items = tempo_items + note_items
+        groups = remi_utils.group_items(items, max_time)
+        events = remi_utils.item2event(groups)
+        return events
+    
+    def convert_midi_to_words(self, midi_file, chord=False):
+        events = self.convert_midi_to_remi_events(midi_file, chord)
+        words = []
+        for event in events:
+            e = '{}_{}'.format(event.name, event.value)
+            if e in self.events2words:
+                words.append(self.events2words[e])
+            else:
+                # OOV
+                if event.name == 'Note Velocity':
+                    # replace with max velocity based on our training data
+                    words.append(self.events2words['Note Velocity_21'])
+                else:
+                    # something is wrong
+                    # you should handle it for your own purpose
+                    print('something is wrong! {}'.format(e))
+        return words
+    
+    def convert_midi_files_to_remi_words(self, midi_files_list):
+        words_list = []
+        for midi_file in midi_files_list:
+            words = self.convert_midi_to_words(midi_file)
+            words_list.append(words)     
+        return words_list
+    
+    def save_dataset(self, midi_files_list, dataset_dir):
+        words_list = self.convert_midi_files_to_remi_words(midi_files_list)
+        for mf, words in zip(midi_files_list, words_list):
+            midi_name = os.path.splitext(os.path.basename(mf))[0]
+            midi_file_name = dataset_dir + midi_name + '.npy'
+            np.save(midi_file_name, words)
+
+    def save_dataset_as_single_file(self, file_list, dataset_path):
+        ids = []
+        sequences = []
+        '''
+        with open(dataset_path, 'w') as file_write:
+            for txt in txt_files_list:
+                with open(txt) as file_read:
+                    file_write.write(file_read.read())
+        '''
+        for filename  in file_list:
+            sequence = np.load(filename)
+            ids.append(os.path.splitext(os.path.basename(filename))[0])
+            sequences.append(sequence)
             
-class CPEncoder():
-    def __init__():
-        a =1
-
-
-
+        np.savez(dataset_path, sequences=sequences, ids=ids)
 
     
+    def words_to_midi(self, words, output_path, prompt_path=None):
+        remi_utils.write_midi(words, self.words2events, output_path, prompt_path)
+           
+
+
 
         
