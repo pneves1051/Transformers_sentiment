@@ -94,8 +94,7 @@ class Generator(nn.Module):
       if cond != None:
         cond_proj = cond_layer(cond_emb).unsqueeze(1)
         x = x + cond_proj  
-        print(cond_proj.shape)
-          
+                  
       x = layer(x, attn_mask=fast_transformers.masking.TriangularCausalMask(seq_len, device=x.device), rotary=self.rotary)#, pos_emb = layer_pos_emb, **kwargs)
       
     # norm and to logits
