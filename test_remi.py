@@ -23,7 +23,7 @@ dict_path = 'C:/Users/pedro/Documents/The Life of Academia - Mestrado/MS/Transfo
 midi_files_list = glob.glob('C:/Users/pedro/Documents/The Life of Academia - Mestrado/MS/Transformer_GAN/REMI/midi_dataset/*.mid*')
 
 encoder = MIDIEncoderREMI(dict_path, midi_files_list)
-print(encoder.events2words)
+
 
 dataset_dir = 'C:/Users/pedro/Documents/The Life of Academia - Mestrado/MS/Transformer_GAN/REMI/remi_dataset/'
 encoder.save_dataset(midi_files_list, dataset_dir)
@@ -51,8 +51,13 @@ transformer_disc = PatchDiscriminator(vocab_size, model_hps['max_seq_len'], mode
                             model_hps['n_heads'], model_hps['ff_dim'], cond_dim=model_hps['cond_dim'], patch_size=model_hps['patch_size']).to(device)
 
 
-data = next(iter(dataloader))['inputs'].to(device)
-transformer_gen(data)
+data = next(iter(dataloader))
+test_inp = data['inputs'].to(device)
+if 'conditions' in data:
+    test_conds = data['conditions'].to(device)
+    
+
+transformer_gen(test_inp)
 
 #transformer_disc(F.one_hot(data, num_classes = vocab_size))
 

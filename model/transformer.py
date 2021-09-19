@@ -83,7 +83,7 @@ class Generator(nn.Module):
     
     x = self.embedding(inputs)    
     if cond != None:
-      cond = self.cond_embedding(cond)
+      cond_emb = self.cond_embedding(cond)
     
     N, seq_len,_ = x.shape
 
@@ -92,8 +92,10 @@ class Generator(nn.Module):
     
     for cond_layer, layer in zip(self.cond_layers, self.transformer):
       if cond != None:
-        cond_emb = cond_layer(cond)
-        x = x + cond_emb      
+        cond_proj = cond_layer(cond_emb).unsqueeze(1)
+        x = x + cond_proj  
+        print(cond_proj.shape)
+          
       x = layer(x, attn_mask=fast_transformers.masking.TriangularCausalMask(seq_len, device=x.device), rotary=self.rotary)#, pos_emb = layer_pos_emb, **kwargs)
       
     # norm and to logits
