@@ -20,9 +20,10 @@ hps = yaml.load(stream)
 data_hps = hps['data']
 
 dict_path = 'C:/Users/pedro/Documents/The Life of Academia - Mestrado/MS/Transformer_GAN/REMI/dict.pkl'
-midi_files_list = glob.glob('C:/Users/pedro/Documents/The Life of Academia - Mestrado/MS/Transformer_GAN/*.mid')
+midi_files_list = glob.glob('C:/Users/pedro/Documents/The Life of Academia - Mestrado/MS/Transformer_GAN/REMI/midi_dataset/*.mid*')
 
 encoder = MIDIEncoderREMI(dict_path, midi_files_list)
+print(encoder.events2words)
 
 dataset_dir = 'C:/Users/pedro/Documents/The Life of Academia - Mestrado/MS/Transformer_GAN/REMI/remi_dataset/'
 encoder.save_dataset(midi_files_list, dataset_dir)
@@ -33,7 +34,9 @@ dataset_path = 'C:/Users/pedro/Documents/The Life of Academia - Mestrado/MS/Tran
 if not os.path.isfile(dataset_path):
     encoder.save_dataset_as_single_file(txt_files_list, dataset_path)
 
-dataset = TransformerDatasetREMI(dataset_path, data_hps['seq_len'])
+cond_path = 'C:/Users/pedro/Documents/The Life of Academia - Mestrado/MS/Transformer_GAN/REMI/label.csv'
+
+dataset = TransformerDatasetREMI(dataset_path, data_hps['seq_len'], cond_path=cond_path)
 
 dataloader = torch.utils.data.DataLoader(dataset, batch_size=data_hps['batch_size'], shuffle=True,
                                          num_workers=data_hps['num_workers'], pin_memory=True) 
@@ -43,9 +46,9 @@ model_hps = hps['model']
 #device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 device = 'cpu'
 transformer_gen = Generator(vocab_size, model_hps['max_seq_len'], model_hps['dim'], model_hps['n_layers'],
-                            model_hps['n_heads'], model_hps['ff_dim'], cond=False, cond_dim=1).to(device)
+                            model_hps['n_heads'], model_hps['ff_dim'], cond_dim=model_hps['cond_dim']).to(device)
 transformer_disc = PatchDiscriminator(vocab_size, model_hps['max_seq_len'], model_hps['dim'], model_hps['n_layers'],
-                            model_hps['n_heads'], model_hps['ff_dim'], cond=False, cond_dim=1, patch_size=model_hps['patch_size']).to(device)
+                            model_hps['n_heads'], model_hps['ff_dim'], cond_dim=model_hps['cond_dim'], patch_size=model_hps['patch_size']).to(device)
 
 
 data = next(iter(dataloader))['inputs'].to(device)
@@ -64,4 +67,4 @@ trainer = TransformerTrainer(transformer_gen, transformer_disc, dataloader, None
                             train_hps['g_lr'], train_hps['d_lr'], vocab_size, d_iters = train_hps['d_iters'], total_iters=train_hps['total_iters'],
                             temperature=train_hps['temperature'], gan_hp=train_hps['gan_hp'])
 
-history = trainer.train(40, checkpoint_dir, validate=False, log_interval=40, load=False, save=False, change_lr=False, train_gan=False)
+history = trainer.train(40, checkpoint_dir, validate=False, log_interval=40, load=False, save=False, change_lr=False, train_gan=True)

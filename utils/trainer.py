@@ -48,7 +48,7 @@ class TransformerTrainer():
 
       if index == 0:
         b_size, seq_len = targets.shape
-     
+      
       outputs,_= self.generator(inputs, conds)
       #mask = torch.ones_like(inputs).bool()
       #outputs = self.generator(inputs, mask=mask)

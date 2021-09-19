@@ -94,6 +94,7 @@ class TransformerDataset2(torch.utils.data.Dataset):
       self.dataset = torch.Tensor(self.dataset)#[:4]
       if cond:
         self.conditions = torch.Tensor(self.conditions)#[:4]  
+      
       print(self.dataset[:2])
 
     def __len__(self):
@@ -112,7 +113,7 @@ class TransformerDataset2(torch.utils.data.Dataset):
 
 class TransformerDatasetREMI(torch.utils.data.Dataset):
    
-    def __init__(self, dataset_path, seq_len, cond=False, pad_token = 0):
+    def __init__(self, dataset_path, seq_len, cond_path=None, pad_token = 0):
       """
         Args:
             dataset: token dataset
@@ -124,10 +125,13 @@ class TransformerDatasetREMI(torch.utils.data.Dataset):
       self.sequences = []
       self.conditions = []
       
-      self.cond = cond
       dataset = np.load(dataset_path, allow_pickle=True)
       original_sequences = dataset['sequences']
       original_ids = dataset['ids']
+
+      self.cond = (cond_path != None)
+      if self.cond:
+        cond_csv = pd.read_csv(cond_path).set_index('ID')
       
       for i, data in enumerate(original_sequences):
       
@@ -139,9 +143,9 @@ class TransformerDatasetREMI(torch.utils.data.Dataset):
           
         num_seq = len(split_data)
         self.ids.extend([original_ids[i]]*num_seq)
-                    
-        if cond:
-          self.conditions.append([dataset['conditions'][i]]*num_seq)
+
+        if self.cond:
+          self.conditions.extend([cond_csv.loc[original_ids[i], '4Q'] - 1]*num_seq)
           
       if type(self.ids[0] == str):
         self.ids = torch.arange(len(self.ids)).unsqueeze(-1)
@@ -149,9 +153,9 @@ class TransformerDatasetREMI(torch.utils.data.Dataset):
         self.ids = torch.Tensor(self.ids)
 
       self.sequences = torch.Tensor(self.sequences)
-      if cond:
-        self.conditions = torch.Tensor(self.conditions)
       
+      if self.cond:
+        self.conditions = torch.Tensor(self.conditions)      
 
     def __len__(self):
       return len(self.sequences)
@@ -161,7 +165,7 @@ class TransformerDatasetREMI(torch.utils.data.Dataset):
       target = self.sequences[idx][1:].long()
 
       if self.cond:
-        batch = {'ids': self.ids[idx], 'inputs': input, 'targets': target, 'conditions': self.cond[idx].long()}
+        batch = {'ids': self.ids[idx], 'inputs': input, 'targets': target, 'conditions': self.conditions[idx].long()}
       else:
         batch = {'ids': self.ids[idx], 'inputs': input, 'targets': target}
       return batch

@@ -1,17 +1,17 @@
 ---
 data:
-  seq_len: 128
-  num_workers: 0
-  batch_size: 1
+  seq_len: 2048
+  num_workers: 4
+  batch_size: 8
   vocab_size: 255
   pad_token: 0
     
 model:
   max_seq_len: 8192
-  dim: 128
+  dim: 512
   n_layers: 6
   n_heads: 8
-  ff_dim: 512
+  ff_dim: 2048
   patch_size: 16
   cond_dim: 4
 
