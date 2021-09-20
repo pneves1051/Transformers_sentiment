@@ -75,7 +75,7 @@ class TransformerDataset2(torch.utils.data.Dataset):
       
         data_len = len(data)
         #print(int((seq_len+1)*math.ceil(data_len/(seq_len+1))-data_len))
-        padded_data = np.pad(data, (0, int((seq_len+1)*math.ceil(data_len/(seq_len+1))-data_len)), mode='constant', constant_values=(0, pad_token))
+        padded_data = np.pad(data, (0, int((seq_len+1)*math.ceil(data_len/(seq_len+1))-data_len)), mode='constant', constant_values=(pad_token, pad_token))
         split_data = np.split(padded_data, padded_data.shape[-1]//(seq_len+1))
         self.dataset.extend(split_data)
           
@@ -113,7 +113,7 @@ class TransformerDataset2(torch.utils.data.Dataset):
 
 class TransformerDatasetREMI(torch.utils.data.Dataset):
    
-    def __init__(self, dataset_path, seq_len, cond_path=None, pad_token = 0):
+    def __init__(self, dataset_path, seq_len, cond_path=None, pad_idx = 0):
       """
         Args:
             dataset: token dataset
@@ -123,6 +123,7 @@ class TransformerDatasetREMI(torch.utils.data.Dataset):
       
       self.ids = []
       self.sequences = []
+      self.masks = []
       self.conditions = []
       
       dataset = np.load(dataset_path, allow_pickle=True)
@@ -135,41 +136,53 @@ class TransformerDatasetREMI(torch.utils.data.Dataset):
       
       for i, data in enumerate(original_sequences):
       
-        data_len = len(data)
-        #print(int((seq_len+1)*math.ceil(data_len/(seq_len+1))-data_len))
-        padded_data = np.pad(data, (0, int((seq_len+1)*math.ceil(data_len/(seq_len+1))-data_len)), mode='constant', constant_values=(0, pad_token))
-        split_data = np.split(padded_data, padded_data.shape[-1]//(seq_len+1))
-        self.sequences.extend(split_data)
+        try: 
+        
+          data_len = len(data)
+          #print(int((seq_len+1)*math.ceil(data_len/(seq_len+1))-data_len))
+          padded_data = np.pad(data, (0, int((seq_len+1)*math.ceil(data_len/(seq_len+1))-data_len)), mode='constant', constant_values=(0, pad_idx))
+          split_data = np.split(padded_data, padded_data.shape[-1]//(seq_len+1))
           
-        num_seq = len(split_data)
-        self.ids.extend([original_ids[i]]*num_seq)
+          num_seq = len(split_data)
+          if self.cond:
+            self.conditions.extend([cond_csv.loc[original_ids[i], '4Q'] - 1]*num_seq)
+          
+          self.sequences.extend(split_data)      
+          
+          self.masks.extend([seq != pad_idx for seq in split_data])
+                   
+          self.ids.extend([original_ids[i]]*num_seq)
+          
+        except KeyError as error:
+          print('Key not found', original_ids[i])
+          continue
 
-        if self.cond:
-          self.conditions.extend([cond_csv.loc[original_ids[i], '4Q'] - 1]*num_seq)
-          
       if type(self.ids[0] == str):
         self.ids = torch.arange(len(self.ids)).unsqueeze(-1)
       else:
         self.ids = torch.Tensor(self.ids)
 
       self.sequences = torch.Tensor(self.sequences)
+      self.masks = torch.Tensor(self.masks)
       
       if self.cond:
-        self.conditions = torch.Tensor(self.conditions)      
+        self.conditions = torch.Tensor(self.conditions)    
+        
 
     def __len__(self):
       return len(self.sequences)
 
     def __getitem__(self, idx):
       input = self.sequences[idx][:-1].long()
+      input_mask = self.masks[idx][:-1].long()
       target = self.sequences[idx][1:].long()
+      target_mask = self.masks[idx][1:].long()
 
       if self.cond:
-        batch = {'ids': self.ids[idx], 'inputs': input, 'targets': target, 'conditions': self.conditions[idx].long()}
+        batch = {'ids': self.ids[idx], 'input': input, 'target': target, 'input_mask': input_mask, 'target_mask': target_mask, 'conditions': self.conditions[idx].long()}
       else:
-        batch = {'ids': self.ids[idx], 'inputs': input, 'targets': target}
+        batch = {'ids': self.ids[idx], 'input': input, 'target': target, 'input_mask': input_mask, 'target_mask': target_mask}
       return batch
-
 
 
 class CPTransformerDataset(torch.utils.data.Dataset):

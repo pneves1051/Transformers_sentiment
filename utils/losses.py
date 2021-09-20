@@ -46,13 +46,29 @@ def wgan_loss_cp(discriminator, d_fake, fake=None, d_real=None, real= None, mode
   return g_loss
 
 
-def wgan_loss(discriminator, d_fake, fake=None, d_real=None, real= None, mode='d'):
+class TransfoCrossEntropyLoss(nn.Module):
+  def __init__(self, *args, **kwargs):
+    super(TransfoCrossEntropyLoss, self).__init__()
+    self.loss_func = nn.CrossEntropyLoss(*args, ** kwargs, reduction='none')
+
+  def forward(self, input, target, loss_mask, dim_last=True):
+    input_n = input.permute(0, 2, 1) if dim_last else input
+    loss = self.loss_func(input_n, target)
+    loss = loss * loss_mask
+    loss = torch.sum(loss) / torch.sum(loss_mask)
+    return loss
+
+    
+def wgan_loss(discriminator, d_fake, fake=None, d_real=None, real= None, mode='d', add_disc_inputs=None):
   if mode == 'd':
     d_loss = -(d_real.mean() - d_fake.mean())
     # Gradient penalty
     eps = torch.rand((d_real.shape[0], 1, 1)).repeat(1, *real.shape[1:]).to(real.device)
     interp = (eps*real+ (1-eps)*fake).to(real.device)
-    d_interp = discriminator(interp, None)
+    interp = torch.autograd.Variable(interp, requires_grad=True)
+    
+    #feed conditions and mask to disc
+    d_interp = discriminator(interp, *add_disc_inputs)
     gp = torch.autograd.grad(outputs=d_interp, inputs=interp,
                               grad_outputs=torch.ones_like(d_interp),
                               create_graph=True, retain_graph=True)[0]          

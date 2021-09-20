@@ -76,7 +76,7 @@ class Generator(nn.Module):
     
     return (y_onehot - y).detach() + y
   
-  def forward(self, inputs, cond=None, temperature = 1, **kwargs):    
+  def forward(self, inputs, cond=None, temperature = 1, input_mask = None):    
     #src = self.embedding(input)*math.sqrt(self.d_model)
     #src = self.pos_encoder(src)
     # cond = F.one_hot(cond.long(), self.cond_dim).float()
@@ -90,12 +90,14 @@ class Generator(nn.Module):
     pos_emb = self.pos_emb(torch.arange(seq_len, device=x.device).unsqueeze(0).expand(N,seq_len))
     x = self.dropout(x + pos_emb)
     
+    attn_mask = fast_transformers.masking.TriangularCausalMask(seq_len, device=x.device)
+    length_mask = fast_transformers.masking.LengthMask(torch.sum(input_mask, dim=-1), max_len=seq_len, device=x.device)
     for cond_layer, layer in zip(self.cond_layers, self.transformer):
       if cond != None:
         cond_proj = cond_layer(cond_emb).unsqueeze(1)
         x = x + cond_proj  
-                  
-      x = layer(x, attn_mask=fast_transformers.masking.TriangularCausalMask(seq_len, device=x.device), rotary=self.rotary)#, pos_emb = layer_pos_emb, **kwargs)
+    
+      x = layer(x, attn_mask=attn_mask, length_mask = length_mask, rotary=self.rotary)#, pos_emb = layer_pos_emb, **kwargs)
       
     # norm and to logits
     x = self.norm(x)
@@ -258,7 +260,7 @@ class PatchDiscriminator(nn.Module):
     padded_x = torch.zeros()
     return paded_x
   '''
-  def forward(self, inputs, cond=None, temperature = 1, **kwargs):    
+  def forward(self, inputs, cond=None, input_mask=None):    
     #src = self.embedding(input)*math.sqrt(self.d_model)
     #src = self.pos_encoder(src)
     # cond = F.one_hot(cond.long(), self.cond_dim).float()
@@ -268,18 +270,26 @@ class PatchDiscriminator(nn.Module):
 
     assert x.shape[1]%self.patch_size == 0, 'Input shape not divisible by patch size'
     
-    x = self.to_patch(x.transpose(-1,-2)).transpose(-1,-2)
-   
+    x = self.to_patch(x.permute(0,2,1)).permute(0,2,1)
     cls = self.cls_token.repeat(x.shape[0], 1, 1)
+    
     x = torch.cat((cls, x), dim = 1)
 
     N, seq_len,_ = x.shape
 
+    input_mask = torch.cat((torch.ones(N, 1, device=input_mask.device), input_mask), dim=1)
+
+
     pos_emb = self.pos_emb(torch.arange(seq_len, device=x.device).unsqueeze(0).expand(N,seq_len))
     x = self.dropout(x + pos_emb)
 
+    #print(torch.ceil(torch.sum(input_mask, dim=1)/self.patch_size))
+    length_mask = fast_transformers.masking.LengthMask(torch.ceil(torch.sum(input_mask, dim=-1)/self.patch_size),
+                                                       max_len=seq_len, device=x.device)
+    #print(x.shape, length_mask.shape)
     for layer in self.transformer:
-      x = layer(x, rotary=self.rotary)#, pos_emb = layer_pos_emb, **kwargs)
+      # we substitute 
+      x = layer(x, length_mask=length_mask, rotary=self.rotary)#, pos_emb = layer_pos_emb, **kwargs)
       
     # norm and to logits
     x = self.norm(x)

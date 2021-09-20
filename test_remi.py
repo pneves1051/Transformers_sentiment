@@ -9,7 +9,7 @@ from data.process_data import MIDIEncoderREMI
 from data.dataset import TransformerDatasetREMI
 from model.transformer import Generator, PatchDiscriminator
 from utils.trainer import TransformerTrainer
-from utils.losses import wgan_loss
+from utils.losses import wgan_loss, TransfoCrossEntropyLoss
 
 
 sys.path.append('..')
@@ -52,12 +52,13 @@ transformer_disc = PatchDiscriminator(vocab_size, model_hps['max_seq_len'], mode
 
 
 data = next(iter(dataloader))
-test_inp = data['inputs'].to(device)
+test_inp = data['input'].to(device)
+test_mask = data['input_mask'].to(device)
 if 'conditions' in data:
     test_conds = data['conditions'].to(device)
     
 
-transformer_gen(test_inp)
+transformer_gen(test_inp, input_mask=test_mask)
 
 #transformer_disc(F.one_hot(data, num_classes = vocab_size))
 
@@ -65,7 +66,7 @@ print(device)
 checkpoint_dir = 'C:/Users/pedro/Documents/The Life of Academia - Mestrado/MS/Transformer_GAN/checkpoints/'
 
 train_hps = hps['training']
-ce_loss = nn.CrossEntropyLoss()
+ce_loss = TransfoCrossEntropyLoss()
 gan_loss = wgan_loss
 
 trainer = TransformerTrainer(transformer_gen, transformer_disc, dataloader, None, ce_loss, gan_loss, device,  

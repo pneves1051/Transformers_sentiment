@@ -223,7 +223,7 @@ class MIDIEncoderREMI():
         self.vocab_size = len(self.words2events.keys())
 
     def create_dict(self, midi_files_list):
-        all_elements= []
+        all_elements= ['[PAD]']
         for midi_file in midi_files_list:
             events = self.convert_midi_to_remi_events(midi_file)
             for event in events:

@@ -38,8 +38,11 @@ class TransformerTrainer():
     start_time = time.time()
   
     for index, data in enumerate(self.dataloader):
-      inputs = data['inputs'].to(self.device)
-      targets = data['targets'].to(self.device)
+      input = data['input'].to(self.device)
+      target = data['target'].to(self.device)
+      input_mask = data['input_mask'].to(self.device)
+      target_mask = data['target_mask'].to(self.device)
+
 
       if 'conditions' in data:
         conds = data['conditions'].to(self.device)
@@ -47,9 +50,9 @@ class TransformerTrainer():
         conds = None
 
       if index == 0:
-        b_size, seq_len = targets.shape
+        b_size, seq_len = target.shape
       
-      outputs,_= self.generator(inputs, conds)
+      outputs,_= self.generator(input, cond=conds, input_mask=input_mask)
       #mask = torch.ones_like(inputs).bool()
       #outputs = self.generator(inputs, mask=mask)
       
@@ -61,7 +64,7 @@ class TransformerTrainer():
       '''
         
       self.g_optimizer.zero_grad()                  
-      loss = self.ce_loss(outputs.permute(0, 2, 1), targets)
+      loss = self.ce_loss(outputs, target, loss_mask=target_mask)
       # loss /= self.accumulation_steps
       loss.backward()
       self.g_optimizer.step()    
@@ -76,7 +79,7 @@ class TransformerTrainer():
       '''
       preds = torch.argmax(F.softmax(outputs, dim=-1), dim = -1)
 
-      correct_predictions += torch.sum(preds == targets)
+      correct_predictions += torch.sum(preds == target)
       #print(set(preds.reshape(-1).tolist()))
       losses.append(loss.item()*self.accumulation_steps)
                   
@@ -106,8 +109,11 @@ class TransformerTrainer():
     start_time = time.time()
   
     for index, data in enumerate(self.dataloader):
-      inputs = data['inputs'].to(self.device)
-      targets = data['targets'].to(self.device)
+      input = data['input'].to(self.device)
+      target = data['target'].to(self.device)
+      input_mask = data['input_mask'].to(self.device)
+      target_mask = data['target_mask'].to(self.device)
+
 
       if 'conditions' in data:
         conds = data['conditions'].to(self.device)
@@ -115,7 +121,7 @@ class TransformerTrainer():
         conds = None
 
       if index == 0:
-        b_size, seq_len = targets.shape
+        b_size, seq_len = target.shape
      
       #########
       # D update
@@ -126,11 +132,11 @@ class TransformerTrainer():
       
       for _ in range(self.d_iters):
         
-        d_real = self.discriminator(F.one_hot(inputs, num_classes=self.vocab_size), conds)
+        d_real = self.discriminator(F.one_hot(input, num_classes=self.vocab_size), cond=conds, input_mask=input_mask)
         
         temperature = self.get_temperature()
-        fake, fake_gumbel = self.generator(inputs, conds, temperature)
-        d_fake = self.discriminator(fake_gumbel, conds)
+        fake, fake_gumbel = self.generator(input, cond=conds, temperature=temperature, input_mask=input_mask)
+        d_fake = self.discriminator(fake_gumbel, cond=conds, input_mask=input_mask)
 
         '''
         clone_out = fake.clone()
@@ -140,7 +146,8 @@ class TransformerTrainer():
         '''
 
         # Chunk and calculate loss
-        d_loss = self.gan_loss(self.discriminator, d_fake, fake_gumbel, d_real, F.one_hot(targets, num_classes=self.vocab_size), mode='d')
+        d_loss = self.gan_loss(self.discriminator, d_fake, fake_gumbel.data, d_real, F.one_hot(target, num_classes=self.vocab_size).data,
+                               mode='d', add_disc_inputs=[conds, target_mask])
                        
         self.d_optimizer.zero_grad()                  
         # loss /= self.accumulation_steps
@@ -165,8 +172,8 @@ class TransformerTrainer():
         p.requires_grad = False      
       
       temperature=self.get_temperature()
-      fake, fake_gumbel = self.generator(inputs, conds, temperature)
-      d_fake = self.discriminator(fake_gumbel, conds)
+      fake, fake_gumbel = self.generator(input, cond=conds, temperature=temperature, input_mask=input_mask)
+      d_fake = self.discriminator(fake_gumbel, cond=conds, input_mask=input_mask)
 
       '''
       clone_out = fake.clone()
@@ -175,7 +182,7 @@ class TransformerTrainer():
         print(unique[torch.argsort(counts, descending=True)], len(unique))
       '''
 
-      mle_loss = self.ce_loss(fake.permute(0,2,1), targets)              
+      mle_loss = self.ce_loss(fake, target, loss_mask=target_mask)              
       gan_g_loss = self.gan_loss(self.discriminator, d_fake, mode='g')
       g_loss = mle_loss + self.gan_hp*gan_g_loss
       
@@ -197,7 +204,7 @@ class TransformerTrainer():
       '''
       preds = torch.argmax(F.softmax(fake, dim=-1), dim = -1)     
 
-      correct_predictions += torch.sum(preds == targets)
+      correct_predictions += torch.sum(preds == target)
       #print(set(preds.reshape(-1).tolist()))
                   
       if index % log_interval == 0 and index > 0:
@@ -278,26 +285,27 @@ class TransformerTrainer():
     with torch.no_grad():
       for index, data in enumerate(eval_dataloader):
         
-        inputs = data['inputs'].to(self.device)
-        targets = data['targets'].to(self.device)
-        conds = data['conditions']
-        
+        input = data['input'].to(self.device)
+        target = data['target'].to(self.device)
+        input_mask = data['input_mask'].to(self.device)
+        target_mask = data['target_mask'].to(self.device)
+
         if 'conditions' in data:
           conds = data['conditions'].to(self.device)
         else:
           conds = None
 
         if index == 0:
-          b_size, seq_len = targets.shape
+          b_size, seq_len = target.shape
   
-        outputs, _ = self.generator(inputs, conds)
+        outputs, _ = self.generator(input, cond=conds, input_mask=input_mask)
         #mask = torch.ones_like(inputs).bool()
         #outputs = self.generator(inputs, mask=mask)
         
-        eval_loss = self.ce_loss(outputs.permute(0, 2, 1), targets)
+        eval_loss = self.ce_loss(outputs, target, loss_mask=target_mask)
         
         preds = torch.argmax(F.softmax(outputs, dim=-1), dim = -1)
-        eval_correct_predictions += torch.sum(preds == targets)
+        eval_correct_predictions += torch.sum(preds == target)
         eval_losses.append(eval_loss.item())
                 
     eval_acc = eval_correct_predictions /((index+1)*b_size*seq_len)
