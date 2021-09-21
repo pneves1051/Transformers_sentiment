@@ -35,6 +35,7 @@ class TransformerTrainer():
        
     losses = []
     correct_predictions = 0.0
+    total_elements = 0.0
     start_time = time.time()
   
     for index, data in enumerate(self.dataloader):
@@ -79,7 +80,8 @@ class TransformerTrainer():
       '''
       preds = torch.argmax(F.softmax(outputs, dim=-1), dim = -1)
 
-      correct_predictions += torch.sum(preds == target)
+      correct_predictions += torch.sum((preds == target)*target_mask)
+      total_elements += torch.sum(target_mask)
       #print(set(preds.reshape(-1).tolist()))
       losses.append(loss.item()*self.accumulation_steps)
                   
@@ -91,10 +93,10 @@ class TransformerTrainer():
               index, len(self.dataloader), 
               2, # self.scheduler.get_last_lr()[0],
               elapsed*1000/log_interval,
-              current_loss,  correct_predictions /((index+1)*b_size*seq_len)))
+              current_loss,  correct_predictions / total_elements))
         start_time = time.time()
 
-    train_acc = correct_predictions /((index+1)*b_size*seq_len)
+    train_acc = correct_predictions/total_elements
     train_loss = np.mean(losses)
     return train_acc, train_loss, losses
 
@@ -106,6 +108,7 @@ class TransformerTrainer():
     d_losses = []
     g_losses = []
     correct_predictions = 0.0
+    total_elements = 0.0
     start_time = time.time()
   
     for index, data in enumerate(self.dataloader):
@@ -204,7 +207,8 @@ class TransformerTrainer():
       '''
       preds = torch.argmax(F.softmax(fake, dim=-1), dim = -1)     
 
-      correct_predictions += torch.sum(preds == target)
+      correct_predictions += torch.sum((preds == target)*target_mask)
+      total_elements += torch.sum(target_mask)
       #print(set(preds.reshape(-1).tolist()))
                   
       if index % log_interval == 0 and index > 0:
@@ -218,13 +222,13 @@ class TransformerTrainer():
               index, len(self.dataloader), 
               2, # self.scheduler.get_last_lr()[0],
               elapsed*1000/log_interval,
-              current_loss,  correct_predictions /((index+1)*b_size*seq_len), 
+              current_loss,  correct_predictions/total_elements, 
               current_g_loss, current_d_loss))
         start_time = time.time()
 
       self.num_iters += 1
 
-    train_acc = correct_predictions /((index+1)*b_size*seq_len)
+    train_acc = correct_predictions / total_elements
     train_loss = np.mean(losses)
     return train_acc, train_loss, losses  
   
@@ -281,7 +285,8 @@ class TransformerTrainer():
   def evaluate(self, eval_dataloader):
     self.generator.eval()
     eval_losses = []
-    eval_correct_predictions = 0
+    eval_correct_predictions = 0.0
+    eval_total_elements = 0.0
     with torch.no_grad():
       for index, data in enumerate(eval_dataloader):
         
@@ -305,10 +310,11 @@ class TransformerTrainer():
         eval_loss = self.ce_loss(outputs, target, loss_mask=target_mask)
         
         preds = torch.argmax(F.softmax(outputs, dim=-1), dim = -1)
-        eval_correct_predictions += torch.sum(preds == target)
+        eval_correct_predictions += torch.sum((preds == target) * target_mask)
+        eval_total_elements += torch.sum(target_mask)
         eval_losses.append(eval_loss.item())
                 
-    eval_acc = eval_correct_predictions /((index+1)*b_size*seq_len)
+    eval_acc = eval_correct_predictions / eval_total_elements
     eval_loss = np.mean(eval_losses)
         
     return eval_acc, eval_loss
