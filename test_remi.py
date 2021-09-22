@@ -36,9 +36,14 @@ if not os.path.isfile(dataset_path):
 
 cond_path = 'C:/Users/pedro/Documents/The Life of Academia - Mestrado/MS/Transformer_GAN/REMI/label.csv'
 
-dataset = TransformerDatasetREMI(dataset_path, data_hps['seq_len'], cond_path=cond_path)
+# Testing multiple dataloaders for semi-supervised training
+dataset1 = TransformerDatasetREMI(dataset_path, data_hps['seq_len'], cond_path=cond_path)
+dataset2= TransformerDatasetREMI(dataset_path, data_hps['seq_len'], cond_path=None)
 
-dataloader = torch.utils.data.DataLoader(dataset, batch_size=data_hps['batch_size'], shuffle=True,
+
+dataloader1 = torch.utils.data.DataLoader(dataset1, batch_size=data_hps['batch_size'], shuffle=True,
+                                         num_workers=data_hps['num_workers'], pin_memory=True) 
+dataloader2 = torch.utils.data.DataLoader(dataset2, batch_size=data_hps['batch_size'], shuffle=True,
                                          num_workers=data_hps['num_workers'], pin_memory=True) 
 
 vocab_size = encoder.vocab_size 
@@ -51,7 +56,7 @@ transformer_disc = PatchDiscriminator(vocab_size, model_hps['max_seq_len'], mode
                             model_hps['n_heads'], model_hps['ff_dim'], cond_dim=model_hps['cond_dim'], patch_size=model_hps['patch_size']).to(device)
 
 
-data = next(iter(dataloader))
+data = next(iter(dataloader2))
 test_inp = data['input'].to(device)
 test_mask = data['input_mask'].to(device)
 if 'conditions' in data:
@@ -69,7 +74,7 @@ train_hps = hps['training']
 ce_loss = TransfoCrossEntropyLoss()
 gan_loss = wgan_loss
 
-trainer = TransformerTrainer(transformer_gen, transformer_disc, dataloader, None, ce_loss, gan_loss, device,  
+trainer = TransformerTrainer(transformer_gen, transformer_disc, [dataloader1, dataloader2], None, ce_loss, gan_loss, device,  
                             train_hps['g_lr'], train_hps['d_lr'], vocab_size, d_iters = train_hps['d_iters'], total_iters=train_hps['total_iters'],
                             temperature=train_hps['temperature'], gan_hp=train_hps['gan_hp'])
 

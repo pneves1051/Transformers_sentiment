@@ -113,7 +113,7 @@ class TransformerDataset2(torch.utils.data.Dataset):
 
 class TransformerDatasetREMI(torch.utils.data.Dataset):
    
-    def __init__(self, dataset_path, seq_len, cond_path=None, pad_idx = 0):
+    def __init__(self, dataset_path, seq_len, cond_path=None, pad_idx = 0, eos_idx=1):
       """
         Args:
             dataset: token dataset
@@ -128,6 +128,8 @@ class TransformerDatasetREMI(torch.utils.data.Dataset):
       
       dataset = np.load(dataset_path, allow_pickle=True)
       original_sequences = dataset['sequences']
+      for i in range(len(original_sequences)):
+        original_sequences[i] = np.append(original_sequences[i], eos_idx)
       original_ids = dataset['ids']
 
       self.cond = (cond_path != None)
@@ -137,16 +139,16 @@ class TransformerDatasetREMI(torch.utils.data.Dataset):
       for i, data in enumerate(original_sequences):
       
         try: 
-        
           data_len = len(data)
           #print(int((seq_len+1)*math.ceil(data_len/(seq_len+1))-data_len))
           padded_data = np.pad(data, (0, int((seq_len+1)*math.ceil(data_len/(seq_len+1))-data_len)), mode='constant', constant_values=(0, pad_idx))
           split_data = np.split(padded_data, padded_data.shape[-1]//(seq_len+1))
           
           num_seq = len(split_data)
+          
           if self.cond:
             self.conditions.extend([cond_csv.loc[original_ids[i], '4Q'] - 1]*num_seq)
-          
+                                          
           self.sequences.extend(split_data)      
           
           self.masks.extend([seq != pad_idx for seq in split_data])
@@ -184,6 +186,23 @@ class TransformerDatasetREMI(torch.utils.data.Dataset):
         batch = {'ids': self.ids[idx], 'input': input, 'target': target, 'input_mask': input_mask, 'target_mask': target_mask}
       return batch
 
+'''
+class JoinedDataset(torch.utils.data.Dataset):
+  def __init__(self, dataset_paths, seq_len, cond_path, pad_idx = 0, eos_idx=1):
+    self.dataset1 = TransformerDatasetREMI(dataset_paths[0], seq_len, cond_path=None, pad_idx = pad_idx, eos_idx=eos_idx)
+    self.dataset2 = TransformerDatasetREMI(dataset_paths[1], seq_len, cond_path=cond_path, pad_idx = pad_idx, eos_idx=eos_idx)
+    self.size1 = len(self.dataset1)
+    self.size2 = len(self.dataset2)
+  
+  def __len__(self):
+      return len(self.size1 + self.size2)
+  
+  def __getitem__(self, index):
+      if (index<self.size1):
+          return self.data1[index]
+      else: 
+          return self.data2[index-self.size1]
+'''
 
 class CPTransformerDataset(torch.utils.data.Dataset):
    

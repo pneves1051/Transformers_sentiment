@@ -1,4 +1,5 @@
 import time
+from itertools import chain
 from collections import defaultdict
 import math
 import numpy as np
@@ -38,7 +39,13 @@ class TransformerTrainer():
     total_elements = 0.0
     start_time = time.time()
   
-    for index, data in enumerate(self.dataloader):
+    if isinstance(self.dataloader, list):
+      loader = chain(*self.dataloader)
+      len_loader = sum([len(l) for l in self.dataloader]) 
+    else:
+      loader = self.dataloader
+      len_loader = len(self.dataloader)
+    for index, data in enumerate(loader):
       input = data['input'].to(self.device)
       target = data['target'].to(self.device)
       input_mask = data['input_mask'].to(self.device)
@@ -90,7 +97,7 @@ class TransformerTrainer():
         current_loss = np.mean(losses)
         print('| {:5d} of {:5d} batches | lr {:02.7f} | ms/batch {:5.2f} | '
               'loss {:5.6f} | acc {:8.6f}'.format(
-              index, len(self.dataloader), 
+              index, len_loader, 
               2, # self.scheduler.get_last_lr()[0],
               elapsed*1000/log_interval,
               current_loss,  correct_predictions / total_elements))
@@ -111,8 +118,15 @@ class TransformerTrainer():
     total_elements = 0.0
     start_time = time.time()
   
-    for index, data in enumerate(self.dataloader):
+    if isinstance(self.dataloader, list):
+      loader = chain(*self.dataloader)
+      len_loader = sum([len(l) for l in self.dataloader]) 
+    else:
+      loader = self.dataloader
+      len_loader = len(self.dataloader)
+    for index, data in enumerate(loader):
       input = data['input'].to(self.device)
+      if index ==0: print(input)
       target = data['target'].to(self.device)
       input_mask = data['input_mask'].to(self.device)
       target_mask = data['target_mask'].to(self.device)
@@ -219,7 +233,7 @@ class TransformerTrainer():
 
         print('| {:5d} of {:5d} batches | lr {:02.7f} | ms/batch {:5.2f} | '
               'loss {:5.6f} | acc {:8.6f} | D_loss: {}, G_loss: {}'.format(
-              index, len(self.dataloader), 
+              index, len_loader, 
               2, # self.scheduler.get_last_lr()[0],
               elapsed*1000/log_interval,
               current_loss,  correct_predictions/total_elements, 
