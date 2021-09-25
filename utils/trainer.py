@@ -1,6 +1,7 @@
 import time
 from itertools import chain
 from collections import defaultdict
+import pickle as pkl
 import math
 import numpy as np
 import torch
@@ -38,70 +39,77 @@ class TransformerTrainer():
     correct_predictions = 0.0
     total_elements = 0.0
     start_time = time.time()
+    index=0
   
     if isinstance(self.dataloader, list):
-      loader = chain(*self.dataloader)
-      len_loader = sum([len(l) for l in self.dataloader]) 
+      # loader = chain(*self.dataloader)
+      #len_loader = sum([len(l) for l in self.dataloader]) 
+      loader = zip(*self.dataloader)
+      len_loader = min([len(l) for l in self.dataloader] )
     else:
       loader = self.dataloader
       len_loader = len(self.dataloader)
-    for index, data in enumerate(loader):
-      input = data['input'].to(self.device)
-      target = data['target'].to(self.device)
-      input_mask = data['input_mask'].to(self.device)
-      target_mask = data['target_mask'].to(self.device)
+    for data_pack in loader:
+      # Solution to allow one or more dataloaders simultaneously
+      data_pack = [data_pack] if not isinstance(self.dataloader, list) else data_pack
+      for data in data_pack:
+        input = data['input'].to(self.device)
+        target = data['target'].to(self.device)
+        input_mask = data['input_mask'].to(self.device)
+        target_mask = data['target_mask'].to(self.device)
 
 
-      if 'conditions' in data:
-        conds = data['conditions'].to(self.device)
-      else:
-        conds = None
+        if 'conditions' in data:
+          conds = data['conditions'].to(self.device)
+        else:
+          conds = None
 
-      if index == 0:
-        b_size, seq_len = target.shape
-      
-      outputs,_= self.generator(input, cond=conds, input_mask=input_mask)
-      #mask = torch.ones_like(inputs).bool()
-      #outputs = self.generator(inputs, mask=mask)
-      
-      '''
-      clone_out = outputs.clone()
-      if (index+1)%log_interval == 0:
-        unique, counts = torch.unique(torch.argmax(F.softmax(clone_out[:1], dim=1), dim = 1), sorted=True, return_counts=True)
-        print(unique[torch.argsort(counts, descending=True)], len(unique))
-      '''
+        if index == 0:
+          b_size, seq_len = target.shape
         
-      self.g_optimizer.zero_grad()                  
-      loss = self.ce_loss(outputs, target, loss_mask=target_mask)
-      # loss /= self.accumulation_steps
-      loss.backward()
-      self.g_optimizer.step()    
-      #self.scheduler.step()
+        outputs,_= self.generator(input, cond=conds, input_mask=input_mask)
+        #mask = torch.ones_like(inputs).bool()
+        #outputs = self.generator(inputs, mask=mask)
+        
+        '''
+        clone_out = outputs.clone()
+        if (index+1)%log_interval == 0:
+          unique, counts = torch.unique(torch.argmax(F.softmax(clone_out[:1], dim=1), dim = 1), sorted=True, return_counts=True)
+          print(unique[torch.argsort(counts, descending=True)], len(unique))
+        '''
+          
+        self.g_optimizer.zero_grad()                  
+        loss = self.ce_loss(outputs, target, loss_mask=target_mask)
+        # loss /= self.accumulation_steps
+        loss.backward()
+        self.g_optimizer.step()    
+        #self.scheduler.step()
 
-      '''
-      if (index+1) % self.accumulation_steps == 0:       
-        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 0.25)
-        self.optimizer.step()                       
-        # self.scheduler.step()
-        self.model.zero_grad()                  
-      '''
-      preds = torch.argmax(F.softmax(outputs, dim=-1), dim = -1)
+        '''
+        if (index+1) % self.accumulation_steps == 0:       
+          torch.nn.utils.clip_grad_norm_(self.model.parameters(), 0.25)
+          self.optimizer.step()                       
+          # self.scheduler.step()
+          self.model.zero_grad()                  
+        '''
+        preds = torch.argmax(F.softmax(outputs, dim=-1), dim = -1)
 
-      correct_predictions += torch.sum((preds == target)*target_mask)
-      total_elements += torch.sum(target_mask)
-      #print(set(preds.reshape(-1).tolist()))
-      losses.append(loss.item()*self.accumulation_steps)
-                  
-      if index % log_interval == 0 and index > 0:
-        elapsed = time.time() - start_time
-        current_loss = np.mean(losses)
-        print('| {:5d} of {:5d} batches | lr {:02.7f} | ms/batch {:5.2f} | '
-              'loss {:5.6f} | acc {:8.6f}'.format(
-              index, len_loader, 
-              2, # self.scheduler.get_last_lr()[0],
-              elapsed*1000/log_interval,
-              current_loss,  correct_predictions / total_elements))
-        start_time = time.time()
+        correct_predictions += torch.sum((preds == target)*target_mask)
+        total_elements += torch.sum(target_mask)
+        #print(set(preds.reshape(-1).tolist()))
+        losses.append(loss.item()*self.accumulation_steps)
+                    
+        if index % log_interval == 0 and index > 0:
+          elapsed = time.time() - start_time
+          current_loss = np.mean(losses)
+          print('| {:5d} of {:5d} batches | lr {:02.7f} | ms/batch {:5.2f} | '
+                'loss {:5.6f} | acc {:8.6f}'.format(
+                index, len_loader, 
+                2, # self.scheduler.get_last_lr()[0],
+                elapsed*1000/log_interval,
+                current_loss,  correct_predictions / total_elements))
+          start_time = time.time()
+        index+=1
 
     train_acc = correct_predictions/total_elements
     train_loss = np.mean(losses)
@@ -117,41 +125,85 @@ class TransformerTrainer():
     correct_predictions = 0.0
     total_elements = 0.0
     start_time = time.time()
+    index = 0
   
     if isinstance(self.dataloader, list):
-      loader = chain(*self.dataloader)
-      len_loader = sum([len(l) for l in self.dataloader]) 
+      # loader = chain(*self.dataloader)
+      #len_loader = sum([len(l) for l in self.dataloader]) 
+      loader = zip(*self.dataloader)
+      len_loader = min([len(l) for l in self.dataloader] )
     else:
       loader = self.dataloader
       len_loader = len(self.dataloader)
-    for index, data in enumerate(loader):
-      input = data['input'].to(self.device)
-      if index ==0: print(input)
-      target = data['target'].to(self.device)
-      input_mask = data['input_mask'].to(self.device)
-      target_mask = data['target_mask'].to(self.device)
+    for data_pack in loader:
+      # Solution to allow one or more dataloaders simultaneously
+      data_pack = [data_pack] if not isinstance(self.dataloader, list) else data_pack
+      for data in data_pack:
+        input = data['input'].to(self.device)
+        if index == 0: print(input)
+        
+        target = data['target'].to(self.device)
+        input_mask = data['input_mask'].to(self.device)
+        target_mask = data['target_mask'].to(self.device)
 
 
-      if 'conditions' in data:
-        conds = data['conditions'].to(self.device)
-      else:
-        conds = None
+        if 'conditions' in data:
+          conds = data['conditions'].to(self.device)
+        else:
+          conds = None
 
-      if index == 0:
-        b_size, seq_len = target.shape
-     
-      #########
-      # D update
-      #########      
-      # Allows D to be updated
-      for p in self.discriminator.parameters():
-        p.requires_grad = True
+        if index == 0:
+          b_size, seq_len = target.shape
       
-      for _ in range(self.d_iters):
+        #########
+        # D update
+        #########      
+        # Allows D to be updated
+        for p in self.discriminator.parameters():
+          p.requires_grad = True
         
-        d_real = self.discriminator(F.one_hot(input, num_classes=self.vocab_size), cond=conds, input_mask=input_mask)
+        for _ in range(self.d_iters):
+          
+          d_real = self.discriminator(F.one_hot(input, num_classes=self.vocab_size), cond=conds, input_mask=input_mask)
+          
+          temperature = self.get_temperature()
+          fake, fake_gumbel = self.generator(input, cond=conds, temperature=temperature, input_mask=input_mask)
+          d_fake = self.discriminator(fake_gumbel, cond=conds, input_mask=input_mask)
+
+          '''
+          clone_out = fake.clone()
+          if (index+1)%log_interval == 0:
+            unique, counts = torch.unique(torch.argmax(F.softmax(clone_out[:1], dim=1), dim = 1), sorted=True, return_counts=True)
+            print(unique[torch.argsort(counts, descending=True)], len(unique))
+          '''
+
+          # Chunk and calculate loss
+          d_loss = self.gan_loss(self.discriminator, d_fake, fake_gumbel.data, d_real, F.one_hot(target, num_classes=self.vocab_size).data,
+                                mode='d', add_disc_inputs=[conds, target_mask])
+                        
+          self.d_optimizer.zero_grad()                  
+          # loss /= self.accumulation_steps
+          d_loss.backward()
+          self.d_optimizer.step()    
+          #self.scheduler.step()
+
+          d_losses.append(d_loss.item())
+          '''
+          if (index+1) % self.accumulation_steps == 0:       
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), 0.25)
+            self.optimizer.step()                       
+            # self.scheduler.step()
+            self.model.zero_grad()                  
+          '''
+          
+        #########
+        # G update
+        #########      
+        # Stops D from being updated
+        for p in self.discriminator.parameters():
+          p.requires_grad = False      
         
-        temperature = self.get_temperature()
+        temperature=self.get_temperature()
         fake, fake_gumbel = self.generator(input, cond=conds, temperature=temperature, input_mask=input_mask)
         d_fake = self.discriminator(fake_gumbel, cond=conds, input_mask=input_mask)
 
@@ -162,17 +214,19 @@ class TransformerTrainer():
           print(unique[torch.argsort(counts, descending=True)], len(unique))
         '''
 
-        # Chunk and calculate loss
-        d_loss = self.gan_loss(self.discriminator, d_fake, fake_gumbel.data, d_real, F.one_hot(target, num_classes=self.vocab_size).data,
-                               mode='d', add_disc_inputs=[conds, target_mask])
-                       
-        self.d_optimizer.zero_grad()                  
+        mle_loss = self.ce_loss(fake, target, loss_mask=target_mask)              
+        gan_g_loss = self.gan_loss(self.discriminator, d_fake, mode='g')
+        g_loss = mle_loss + self.gan_hp*gan_g_loss
+        
         # loss /= self.accumulation_steps
-        d_loss.backward()
-        self.d_optimizer.step()    
+        self.g_optimizer.zero_grad()    
+        g_loss.backward()
+        self.g_optimizer.step()    
         #self.scheduler.step()
 
-        d_losses.append(d_loss.item())
+        g_losses.append(gan_g_loss.item())
+        losses.append(mle_loss.item()*self.accumulation_steps)
+
         '''
         if (index+1) % self.accumulation_steps == 0:       
           torch.nn.utils.clip_grad_norm_(self.model.parameters(), 0.25)
@@ -180,67 +234,29 @@ class TransformerTrainer():
           # self.scheduler.step()
           self.model.zero_grad()                  
         '''
-        
-      #########
-      # G update
-      #########      
-      # Stops D from being updated
-      for p in self.discriminator.parameters():
-        p.requires_grad = False      
-      
-      temperature=self.get_temperature()
-      fake, fake_gumbel = self.generator(input, cond=conds, temperature=temperature, input_mask=input_mask)
-      d_fake = self.discriminator(fake_gumbel, cond=conds, input_mask=input_mask)
+        preds = torch.argmax(F.softmax(fake, dim=-1), dim = -1)     
 
-      '''
-      clone_out = fake.clone()
-      if (index+1)%log_interval == 0:
-        unique, counts = torch.unique(torch.argmax(F.softmax(clone_out[:1], dim=1), dim = 1), sorted=True, return_counts=True)
-        print(unique[torch.argsort(counts, descending=True)], len(unique))
-      '''
+        correct_predictions += torch.sum((preds == target)*target_mask)
+        total_elements += torch.sum(target_mask)
+        #print(set(preds.reshape(-1).tolist()))
+                    
+        if index % log_interval == 0 and index > 0:
+          elapsed = time.time() - start_time
+          current_loss = np.mean(losses)
+          current_g_loss = np.mean(g_losses)
+          current_d_loss = np.mean(d_losses)
 
-      mle_loss = self.ce_loss(fake, target, loss_mask=target_mask)              
-      gan_g_loss = self.gan_loss(self.discriminator, d_fake, mode='g')
-      g_loss = mle_loss + self.gan_hp*gan_g_loss
-      
-      # loss /= self.accumulation_steps
-      self.g_optimizer.zero_grad()    
-      g_loss.backward()
-      self.g_optimizer.step()    
-      #self.scheduler.step()
+          print('| {:5d} of {:5d} batches | lr {:02.7f} | ms/batch {:5.2f} | '
+                'loss {:5.6f} | acc {:8.6f} | D_loss: {}, G_loss: {}'.format(
+                index, len_loader, 
+                2, # self.scheduler.get_last_lr()[0],
+                elapsed*1000/log_interval,
+                current_loss,  correct_predictions/total_elements, 
+                current_g_loss, current_d_loss))
+          start_time = time.time()
 
-      g_losses.append(gan_g_loss.item())
-      losses.append(mle_loss.item()*self.accumulation_steps)
-
-      '''
-      if (index+1) % self.accumulation_steps == 0:       
-        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 0.25)
-        self.optimizer.step()                       
-        # self.scheduler.step()
-        self.model.zero_grad()                  
-      '''
-      preds = torch.argmax(F.softmax(fake, dim=-1), dim = -1)     
-
-      correct_predictions += torch.sum((preds == target)*target_mask)
-      total_elements += torch.sum(target_mask)
-      #print(set(preds.reshape(-1).tolist()))
-                  
-      if index % log_interval == 0 and index > 0:
-        elapsed = time.time() - start_time
-        current_loss = np.mean(losses)
-        current_g_loss = np.mean(g_losses)
-        current_d_loss = np.mean(d_losses)
-
-        print('| {:5d} of {:5d} batches | lr {:02.7f} | ms/batch {:5.2f} | '
-              'loss {:5.6f} | acc {:8.6f} | D_loss: {}, G_loss: {}'.format(
-              index, len_loader, 
-              2, # self.scheduler.get_last_lr()[0],
-              elapsed*1000/log_interval,
-              current_loss,  correct_predictions/total_elements, 
-              current_g_loss, current_d_loss))
-        start_time = time.time()
-
-      self.num_iters += 1
+        self.num_iters += 1
+        index += 1
 
     train_acc = correct_predictions / total_elements
     train_loss = np.mean(losses)
@@ -346,6 +362,10 @@ class TransformerTrainer():
     self.g_optimizer.load_state_dict(checkpoint['g_optimizer'])
     self.discriminator.load_state_dict(checkpoint['discriminator'])
     self.d_optimizer.load_state_dict(checkpoint['d_optimizer'])
+    with open(checkpoint_dir + 'history.pkl', 'rb') as f:
+      self.history = pkl.load(f)
+    self.num_iters = sum([len(tl) for tl in self.history['train_losses']])
+    print(self.num_iters)
   
   def save_checkpoint(self, checkpoint_dir):
     checkpoint = { 
@@ -355,4 +375,8 @@ class TransformerTrainer():
             'd_optimizer': self.d_optimizer.state_dict()}
         
     torch.save(checkpoint, checkpoint_dir + 'tr_checkpoint.pth')
+    with open(checkpoint_dir + 'history.pkl', 'wb') as f:
+      pkl.dump(self.history, f)
+
+
 

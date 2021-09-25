@@ -32,7 +32,7 @@ class Generator(nn.Module):
     self.pos_emb = nn.Embedding(max_seq_len, dim)
        
     self.cond_embedding = nn.Embedding(cond_dim, dim)
-    self.cond_layers = nn.ModuleList([nn.Sequential(nn.Linear(dim, dim)) for _ in range(n_layers)])
+    self.cond_layers = nn.ModuleList([nn.Sequential(nn.Linear(dim, dim), nn.Tanh(), nn.Dropout(dropout)) for _ in range(n_layers)])
     
     self.rotary = Rotary(dim=dim//n_heads)
     
