@@ -18,7 +18,6 @@ class MultiCrossEntropyLoss(nn.Module):
 
     return sum(losses)/len(losses)
 
-
 # TODO APPLY MASK MAYBE
 def wgan_loss_cp(discriminator, d_fake, fake=None, d_real=None, real= None, mode='d', conds=None):
   if mode == 'd':
@@ -58,7 +57,20 @@ class TransfoCrossEntropyLoss(nn.Module):
     loss = torch.sum(loss) / torch.sum(loss_mask)
     return loss
 
-    
+class TransfoL1Loss(nn.Module):
+  def __init__(self, *args, **kwargs):
+    super(TransfoL1Loss, self).__init__()
+    self.loss_func = nn.L1Loss(*args, ** kwargs, reduction='none')
+
+  def forward(self, input, target, loss_mask):
+    #print(input.shape, target.shape, loss_mask.shape)
+    loss_mask = loss_mask[..., None].expand(-1, -1, input.shape[-1])
+    loss = self.loss_func(input, target)
+    loss = loss * loss_mask
+    loss = torch.sum(loss) / torch.sum(loss_mask)
+    return loss
+
+
 def wgan_loss(discriminator, d_fake, fake=None, d_real=None, real= None, mode='d', add_disc_inputs=None):
   if mode == 'd':
     d_loss = -(d_real.mean() - d_fake.mean())

@@ -260,12 +260,20 @@ class PatchDiscriminator(nn.Module):
     padded_x = torch.zeros()
     return paded_x
   '''
+  def get_patch_loss_mask(self, target_mask):
+    num_patches = target_mask.shape[1]//self.patch_size
+    patch_loss_shapes = torch.ceil(torch.sum(target_mask, dim=-1)/self.patch_size).long()
+    patch_loss_mask = torch.stack([torch.cat([torch.ones(ls.item(), device=target_mask.device),
+    torch.zeros(num_patches-ls.item(), device=target_mask.device)]) for ls in patch_loss_shapes])
+
+    return patch_loss_mask
+
   def forward(self, inputs, cond=None, input_mask=None):    
     #src = self.embedding(input)*math.sqrt(self.d_model)
     #src = self.pos_encoder(src)
     # cond = F.one_hot(cond.long(), self.cond_dim).float()
     #cls = F.one_hot(torch.full([inputs.shape[0], 1], self.vocab_size, device=inputs.device), num_classes=inputs.shape[-1]).float()
-      
+    features = []
     x = self.embedding(inputs.float())  
 
     assert x.shape[1]%self.patch_size == 0, 'Input shape not divisible by patch size'
@@ -279,25 +287,25 @@ class PatchDiscriminator(nn.Module):
 
     input_mask = torch.cat((torch.ones(N, 1, device=input_mask.device), input_mask), dim=1)
 
-
     pos_emb = self.pos_emb(torch.arange(seq_len, device=x.device).unsqueeze(0).expand(N,seq_len))
     x = self.dropout(x + pos_emb)
 
     #print(torch.ceil(torch.sum(input_mask, dim=1)/self.patch_size))
-    length_mask = fast_transformers.masking.LengthMask(torch.ceil(torch.sum(input_mask, dim=-1)/self.patch_size),
-                                                       max_len=seq_len, device=x.device)
+    mask_len = torch.ceil(torch.sum(input_mask, dim=-1)/self.patch_size)
+    length_mask = fast_transformers.masking.LengthMask(mask_len, max_len=seq_len, device=x.device)
     #print(x.shape, length_mask.shape)
     for layer in self.transformer:
       # we substitute 
       x = layer(x, length_mask=length_mask, rotary=self.rotary)#, pos_emb = layer_pos_emb, **kwargs)
-      
+      features.append(x[:, 1:])
     # norm and to logits
     x = self.norm(x)
 
-    out_class = x[:, 0]
+    #out_class = x[:, 0]
+    out_class = torch.sum(x[:, 1:], dim=1)
     out = self.to_out(out_class)
     if cond != None:
       cond_proj = torch.sum(self.cond_embedding(cond)*out_class, dim=1, keepdim=True)
       out += cond_proj
 
-    return out
+    return out # , features

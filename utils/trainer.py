@@ -1,3 +1,4 @@
+from model.transformer import Discriminator
 import time
 from itertools import chain
 from collections import defaultdict
@@ -6,6 +7,7 @@ import math
 import numpy as np
 import torch
 import torch.nn.functional as F
+from utils.losses import TransfoL1Loss
 
 class TransformerTrainer():
   def __init__(self, generator, discriminator, dataloader, valid_dataloader, ce_loss, gan_loss, device, g_lr, d_lr,
@@ -31,6 +33,8 @@ class TransformerTrainer():
     self.accumulation_steps=accumulation_steps
 
     self.history = defaultdict(list)
+
+    self.L1Loss = TransfoL1Loss()
    
   def train_epoch(self, log_interval=20):
     self.generator.train()
@@ -82,16 +86,10 @@ class TransformerTrainer():
         loss = self.ce_loss(outputs, target, loss_mask=target_mask)
         # loss /= self.accumulation_steps
         loss.backward()
+        # nn.utils.clip_grad_norm_(self.generator.parameters(), 3.0)
         self.g_optimizer.step()    
         #self.scheduler.step()
 
-        '''
-        if (index+1) % self.accumulation_steps == 0:       
-          torch.nn.utils.clip_grad_norm_(self.model.parameters(), 0.25)
-          self.optimizer.step()                       
-          # self.scheduler.step()
-          self.model.zero_grad()                  
-        '''
         preds = torch.argmax(F.softmax(outputs, dim=-1), dim = -1)
 
         correct_predictions += torch.sum((preds == target)*target_mask)
@@ -140,12 +138,10 @@ class TransformerTrainer():
       data_pack = [data_pack] if not isinstance(self.dataloader, list) else data_pack
       for data in data_pack:
         input = data['input'].to(self.device)
-        if index == 0: print(input)
-        
+                
         target = data['target'].to(self.device)
         input_mask = data['input_mask'].to(self.device)
         target_mask = data['target_mask'].to(self.device)
-
 
         if 'conditions' in data:
           conds = data['conditions'].to(self.device)
@@ -184,18 +180,12 @@ class TransformerTrainer():
           self.d_optimizer.zero_grad()                  
           # loss /= self.accumulation_steps
           d_loss.backward()
+          #nn.utils.clip_grad_norm_(self.discriminator.parameters(), 3.0)
           self.d_optimizer.step()    
           #self.scheduler.step()
 
           d_losses.append(d_loss.item())
-          '''
-          if (index+1) % self.accumulation_steps == 0:       
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), 0.25)
-            self.optimizer.step()                       
-            # self.scheduler.step()
-            self.model.zero_grad()                  
-          '''
-          
+            
         #########
         # G update
         #########      
@@ -208,32 +198,25 @@ class TransformerTrainer():
         d_fake = self.discriminator(fake_gumbel, cond=conds, input_mask=input_mask)
 
         '''
-        clone_out = fake.clone()
-        if (index+1)%log_interval == 0:
-          unique, counts = torch.unique(torch.argmax(F.softmax(clone_out[:1], dim=1), dim = 1), sorted=True, return_counts=True)
-          print(unique[torch.argsort(counts, descending=True)], len(unique))
+        feat_loss = 0
+        for feat_fake, feat_real in zip(feats_fake, feats_real):
+          feat_loss += self.L1Loss(feat_fake, feat_real.detach(), self.discriminator.get_patch_loss_mask(target_mask))
         '''
-
-        mle_loss = self.ce_loss(fake, target, loss_mask=target_mask)              
+        
+        mle_loss = self.ce_loss(fake, target, loss_mask=target_mask)    
         gan_g_loss = self.gan_loss(self.discriminator, d_fake, mode='g')
         g_loss = mle_loss + self.gan_hp*gan_g_loss
         
         # loss /= self.accumulation_steps
         self.g_optimizer.zero_grad()    
         g_loss.backward()
+        #nn.utils.clip_grad_norm_(self.generator.parameters(), 3.0)
         self.g_optimizer.step()    
         #self.scheduler.step()
 
         g_losses.append(gan_g_loss.item())
         losses.append(mle_loss.item()*self.accumulation_steps)
 
-        '''
-        if (index+1) % self.accumulation_steps == 0:       
-          torch.nn.utils.clip_grad_norm_(self.model.parameters(), 0.25)
-          self.optimizer.step()                       
-          # self.scheduler.step()
-          self.model.zero_grad()                  
-        '''
         preds = torch.argmax(F.softmax(fake, dim=-1), dim = -1)     
 
         correct_predictions += torch.sum((preds == target)*target_mask)
@@ -243,8 +226,8 @@ class TransformerTrainer():
         if index % log_interval == 0 and index > 0:
           elapsed = time.time() - start_time
           current_loss = np.mean(losses)
-          current_g_loss = np.mean(g_losses)
           current_d_loss = np.mean(d_losses)
+          current_g_loss = np.mean(g_losses)
 
           print('| {:5d} of {:5d} batches | lr {:02.7f} | ms/batch {:5.2f} | '
                 'loss {:5.6f} | acc {:8.6f} | D_loss: {}, G_loss: {}'.format(
@@ -252,7 +235,7 @@ class TransformerTrainer():
                 2, # self.scheduler.get_last_lr()[0],
                 elapsed*1000/log_interval,
                 current_loss,  correct_predictions/total_elements, 
-                current_g_loss, current_d_loss))
+                current_d_loss, current_g_loss))
           start_time = time.time()
 
         self.num_iters += 1
@@ -260,7 +243,7 @@ class TransformerTrainer():
 
     train_acc = correct_predictions / total_elements
     train_loss = np.mean(losses)
-    return train_acc, train_loss, losses  
+    return train_acc, train_loss, losses, d_losses, g_losses
   
   def train(self, EPOCHS, checkpoint_dir, validate = False, log_interval=20, load=False, save=True, change_lr = False, train_gan=False):
     best_accuracy = 0
@@ -282,25 +265,30 @@ class TransformerTrainer():
 
       print('-' * 10)
 
+      d_losses, g_losses = [0], [0]
       if train_gan:
-        train_acc, train_loss, train_losses = self.train_epoch_gan(log_interval=log_interval)
+        train_acc, train_loss, train_losses, d_losses, g_losses = self.train_epoch_gan(log_interval=log_interval)
       else:
         train_acc, train_loss, train_losses = self.train_epoch(log_interval=log_interval) 
       
+
       self.history['train_acc'].append(train_acc)
       self.history['train_loss'].append(train_loss)
       self.history['train_losses'].append(train_losses)
+      self.history['d_losses'].append(d_losses)
+      self.history['g_losses'].append(g_losses)
       total_time += time.time() - epoch_start_time
       self.history['time'].append(total_time)
       if validate:
         valid_acc, valid_loss = self.evaluate(self.valid_dataloader)
         self.history['valid_acc'].append(valid_acc)
         self.history['valid_loss'].append(valid_loss)
+      
       print('| End of epoch {:3d}  | time: {:5.4f}s | train loss {:5.6f} | '
             'train ppl {:8.4f} | \n train accuracy {:5.6f} | valid loss {:5.6f} | '
-            'valid ppl {:8.6f} | valid accuracy {:5.6f} |'.format(
+            'valid ppl {:8.6f} | valid accuracy {:5.6f} | D_loss: {:5.6f} | G_loss: {:5.6f} |'.format(
             epoch+1, (time.time()-epoch_start_time), train_loss, math.exp(train_loss), train_acc,
-            valid_loss, math.exp(valid_loss), valid_acc))
+            valid_loss, math.exp(valid_loss), valid_acc, np.mean(d_losses) , np.mean(g_losses)))
 
       if save:
         if validate and valid_acc > best_accuracy :
@@ -377,6 +365,8 @@ class TransformerTrainer():
     torch.save(checkpoint, checkpoint_dir + 'tr_checkpoint.pth')
     with open(checkpoint_dir + 'history.pkl', 'wb') as f:
       pkl.dump(self.history, f)
+
+
 
 
 
