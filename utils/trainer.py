@@ -1,6 +1,7 @@
 from model.transformer import Discriminator
 import time
 from itertools import chain
+from functools import partial
 from collections import defaultdict
 import pickle as pkl
 import math
@@ -9,9 +10,26 @@ import torch
 import torch.nn.functional as F
 from utils.losses import TransfoL1Loss
 
+
+# adapted from https://huggingface.co/transformers/_modules/transformers/optimization.html#get_constant_schedule_with_warmup
+def warmup_constant_lambda(step, warmup_steps):
+  if step < warmup_steps:
+    return step/max(1.0, warmup_steps)
+  else:
+    return 1
+
+def warmup_cosine_lambda(step, warmup_steps, training_steps, cycles = 0.5):
+  if step < warmup_steps:
+    return step/max(1.0, warmup_steps)
+  else:
+    progress = float(step - warmup_steps) / float(max(1, training_steps - warmup_steps))
+    return max(0.0, 0.5 * (1.0 + math.cos(math.pi * float(cycles) * 2.0 * progress)))
+
+
+
 class TransformerTrainer():
   def __init__(self, generator, discriminator, dataloader, valid_dataloader, ce_loss, gan_loss, device, g_lr, d_lr,
-               vocab_size, d_iters=5, total_iters=100000, temperature=100, gan_hp = 1, accumulation_steps=1):
+               vocab_size, d_iters=5, total_iters=100000, temperature=100, gan_hp = 1, accumulation_steps=1, schedule='constant'):
     self.generator = generator
     self.discriminator = discriminator
 
@@ -35,6 +53,29 @@ class TransformerTrainer():
     self.history = defaultdict(list)
 
     self.L1Loss = TransfoL1Loss()
+
+    if schedule == 'constant':
+      self.g_scheduler = torch.optim.lr_scheduler.LambdaLR(self.g_optimizer,
+                            lambda x: 1.)
+      self.d_scheduler = torch.optim.lr_scheduler.LambdaLR(self.d_optimizer, 
+                            lambda x: 1.)
+   
+    if schedule == 'constant_with_warmup':
+      self.g_scheduler = torch.optim.lr_scheduler.LambdaLR(self.g_optimizer,
+                            partial(warmup_constant_lambda, warmup_steps = total_iters//5))
+      self.d_scheduler = torch.optim.lr_scheduler.LambdaLR(self.d_optimizer, 
+                            partial(warmup_constant_lambda, warmup_steps = total_iters//5))
+    
+    elif schedule == 'cosine_with_warmup':
+      self.g_scheduler = torch.optim.lr_scheduler.LambdaLR(self.g_optimizer,
+                            partial(warmup_cosine_lambda, warmup_steps = total_iters//5,
+                                    training_steps=total_iters, cycles=0.5))
+      self.d_scheduler = torch.optim.lr_scheduler.LambdaLR(self.d_optimizer, 
+                            partial(warmup_cosine_lambda, warmup_steps = total_iters//5,
+                                    training_steps=total_iters, cycles=0.5))
+    else:
+      raise KeyError('Schedule ' + schedule + ' not found.')
+
    
   def train_epoch(self, log_interval=20):
     self.generator.train()
@@ -61,7 +102,6 @@ class TransformerTrainer():
         target = data['target'].to(self.device)
         input_mask = data['input_mask'].to(self.device)
         target_mask = data['target_mask'].to(self.device)
-
 
         if 'conditions' in data:
           conds = data['conditions'].to(self.device)
@@ -186,6 +226,7 @@ class TransformerTrainer():
 
           d_losses.append(d_loss.item())
             
+        self.d_scheduler.step()
         #########
         # G update
         #########      
@@ -212,7 +253,8 @@ class TransformerTrainer():
         g_loss.backward()
         #nn.utils.clip_grad_norm_(self.generator.parameters(), 3.0)
         self.g_optimizer.step()    
-        #self.scheduler.step()
+        
+        self.g_scheduler.step()
 
         g_losses.append(gan_g_loss.item())
         losses.append(mle_loss.item()*self.accumulation_steps)
@@ -229,10 +271,10 @@ class TransformerTrainer():
           current_d_loss = np.mean(d_losses)
           current_g_loss = np.mean(g_losses)
 
-          print('| {:5d} of {:5d} batches | lr {:02.7f} | ms/batch {:5.2f} | '
-                'loss {:5.6f} | acc {:8.6f} | D_loss: {}, G_loss: {}'.format(
+          print('| {:5d} of {:5d} batches | d_lr {:02.7f} | g_lr {:02.7f} | ms/batch {:5.2f} | '
+                'loss {:5.6f} | acc {:8.6f} | D_loss: {} | G_loss: {} |'.format(
                 index, len_loader, 
-                2, # self.scheduler.get_last_lr()[0],
+                self.d_scheduler.get_last_lr()[0], self.g_scheduler.get_last_lr()[0],
                 elapsed*1000/log_interval,
                 current_loss,  correct_predictions/total_elements, 
                 current_d_loss, current_g_loss))
@@ -348,8 +390,12 @@ class TransformerTrainer():
     checkpoint = torch.load(checkpoint_dir + 'tr_checkpoint.pth', map_location='cpu')
     self.generator.load_state_dict(checkpoint['generator'])
     self.g_optimizer.load_state_dict(checkpoint['g_optimizer'])
+    self.g_scheduler.load_state_dict(checkpoint['g_scheduler'])
+
     self.discriminator.load_state_dict(checkpoint['discriminator'])
     self.d_optimizer.load_state_dict(checkpoint['d_optimizer'])
+    self.d_scheduler.load_state_dict(checkpoint['d_scheduler'])
+
     with open(checkpoint_dir + 'history.pkl', 'rb') as f:
       self.history = pkl.load(f)
     self.num_iters = sum([len(tl) for tl in self.history['train_losses']])
@@ -359,13 +405,14 @@ class TransformerTrainer():
     checkpoint = { 
             'generator': self.generator.state_dict(),
             'g_optimizer': self.g_optimizer.state_dict(),
+            'g_scheduler': self.g_scheduler.state_dict(),
             'discriminator': self.discriminator.state_dict(),
-            'd_optimizer': self.d_optimizer.state_dict()}
+            'd_optimizer': self.d_optimizer.state_dict(),
+            'd_scheduler': self.d_scheduler.state_dict()}
         
     torch.save(checkpoint, checkpoint_dir + 'tr_checkpoint.pth')
     with open(checkpoint_dir + 'history.pkl', 'wb') as f:
       pkl.dump(self.history, f)
-
 
 
 

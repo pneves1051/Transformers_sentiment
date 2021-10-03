@@ -6,7 +6,7 @@ from fast_transformers.attention.linear_attention import LinearAttention
 from fast_transformers.attention.causal_linear_attention import CausalLinearAttention
 from fast_transformers.attention import AttentionLayer
 from fast_transformers.transformers import TransformerEncoderLayer
-from .attention import RelativeTransformerEncoderLayer, RelativeAttentionLayer, Rotary
+from .attention import RelativeTransformerEncoderLayer, RelativeAttentionLayer, Rotary, ConditionalLayerNorm
 
 class Generator(nn.Module):
   def __init__(self,
@@ -44,13 +44,14 @@ class Generator(nn.Module):
             dim,
             ff_dim,
             dropout=dropout,
-            activation="gelu"                     
+            activation="gelu",
+            num_classes=cond_dim                  
         ) for l in range(n_layers)
     ])
     
     self.dropout = nn.Dropout(dropout)
     
-    self.norm = nn.LayerNorm(dim)
+    self.norm = ConditionalLayerNorm(dim, cond_dim)
     self.to_out = nn.Linear(dim, num_tokens)   
 
     self.gumbel_dist = torch.distributions.gumbel.Gumbel(loc=0, scale=1)
@@ -93,14 +94,15 @@ class Generator(nn.Module):
     attn_mask = fast_transformers.masking.TriangularCausalMask(seq_len, device=x.device)
     length_mask = fast_transformers.masking.LengthMask(torch.sum(input_mask, dim=-1), max_len=seq_len, device=x.device)
     for cond_layer, layer in zip(self.cond_layers, self.transformer):
+      '''
       if cond != None:
         cond_proj = cond_layer(cond_emb).unsqueeze(1)
-        x = x + cond_proj  
-    
-      x = layer(x, attn_mask=attn_mask, length_mask = length_mask, rotary=self.rotary)#, pos_emb = layer_pos_emb, **kwargs)
+        #x = x + cond_proj  
+      '''
+      x = layer(x, attn_mask=attn_mask, length_mask = length_mask, rotary=self.rotary, cond=cond)#, pos_emb = layer_pos_emb, **kwargs)
       
     # norm and to logits
-    x = self.norm(x)
+    x = self.norm(x, cond)
 
     out = self.to_out(x)
 

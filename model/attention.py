@@ -11,6 +11,30 @@ from fast_transformers.masking import FullMask, LengthMask
 from fast_transformers.events import QKVEvent
 
 
+class ConditionalLayerNorm(nn.Module):
+  def __init__(self, num_features, num_classes):
+    super().__init__()
+    self.num_features = num_features
+    self.ln = nn.LayerNorm(num_features, elementwise_affine=False)
+
+    self.un_gamma = nn.Parameter(torch.normal(1., 0.02, size=(num_features,)))
+    self.un_beta = nn.Parameter(torch.zeros(num_features))
+
+    self.cond_embed = nn.Embedding(num_classes, num_features * 2)
+    self.cond_embed.weight.data[:, :num_features].normal_(1, 0.02)  # Initialise scale at N(1, 0.02)
+    self.cond_embed.weight.data[:, num_features:].zero_()  # Initialise bias at 0
+
+  def forward(self, x, y=None):
+    out = self.ln(x)
+    #print(out.shape)
+    if y is not None:
+        gamma, beta = self.cond_embed(y).chunk(2, 1)
+    else:
+        gamma, beta = self.un_gamma, self.un_beta
+    out = gamma.view(-1, 1, self.num_features) * out + beta.view(-1, 1, self.num_features)
+    return out
+
+
 # from https://blog.eleuther.ai/rotary-embeddings/
 class Rotary(nn.Module):
     def __init__(self, dim, base = 10000):
@@ -159,20 +183,20 @@ class RelativeTransformerEncoderLayer(nn.Module):
                           global dispatcher)
     """
     def __init__(self, attention, d_model, d_ff=None, dropout=0.1,
-                 activation="relu", event_dispatcher=""):
+                 activation="relu", event_dispatcher="", num_classes=None):
         super(RelativeTransformerEncoderLayer, self).__init__()
         d_ff = d_ff or 4*d_model
         self.attention = attention
         self.linear1 = Linear(d_model, d_ff)
         self.linear2 = Linear(d_ff, d_model)
-        self.norm1 = LayerNorm(d_model)
-        self.norm2 = LayerNorm(d_model)
+        self.norm1 = nn.LayerNorm(d_model) if num_classes == None else ConditionalLayerNorm(d_model, num_classes) # CHANGE BACK TO LAYER NORM IF IT DOESNT WORK
+        self.norm2 = nn.LayerNorm(d_model) if num_classes == None else ConditionalLayerNorm(d_model, num_classes)
         self.dropout = Dropout(dropout)
         self.activation = getattr(F, activation)
         self.event_dispatcher = EventDispatcher.get(event_dispatcher)
         
 
-    def forward(self, x, attn_mask=None, length_mask=None, rotary=None):
+    def forward(self, x, attn_mask=None, length_mask=None, rotary=None, cond=None):
         """Apply the transformer encoder to the input x.
         Arguments
         ---------
@@ -203,8 +227,8 @@ class RelativeTransformerEncoderLayer(nn.Module):
         ))
 
         # Run the fully connected part of the layer
-        y = x = self.norm1(x)
+        y = x = self.norm1(x) if cond == None else self.norm1(x, cond)
         y = self.dropout(self.activation(self.linear1(y)))
         y = self.dropout(self.linear2(y))
 
-        return self.norm2(x+y)
+        return self.norm1(x) if cond == None else self.norm2(x+y, cond)
