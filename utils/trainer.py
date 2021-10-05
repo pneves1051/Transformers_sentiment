@@ -179,7 +179,7 @@ class TransformerTrainer():
       # loader = chain(*self.dataloader)
       #len_loader = sum([len(l) for l in self.dataloader]) 
       loader = zip(*self.dataloader)
-      len_loader = len(self.dtaloader)*min([len(l) for l in self.dataloader] )
+      len_loader = len(self.dataloader)*min([len(l) for l in self.dataloader] )
     else:
       loader = self.dataloader
       len_loader = len(self.dataloader)
