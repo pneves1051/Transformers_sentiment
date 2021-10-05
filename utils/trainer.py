@@ -87,6 +87,21 @@ class TransformerTrainer():
     
     return disc_weight
   
+  def get_gp(self, fake, real, add_disc_inputs, norm_value=1, pos=0):
+    # Gradient penalty
+    eps = torch.rand((real.shape[0], 1, 1)).repeat(1, *real.shape[1:]).to(real.device)
+    interp = (eps*real+ (1-eps)*fake).to(real.device)
+    interp = torch.autograd.Variable(interp, requires_grad=True)
+    
+    #feed conditions and mask to disc
+    d_interp = self.discriminator(interp, *add_disc_inputs)[pos]
+    gp = torch.autograd.grad(outputs=d_interp, inputs=interp,
+                              grad_outputs=torch.ones_like(d_interp),
+                              create_graph=True, retain_graph=True)[0]          
+    gp = gp.view(gp.shape[0], -1)
+    gp = ((gp.norm(2, dim=1) - norm_value)**2).mean() 
+    return gp
+  
   def train_epoch(self, log_interval=20):
     self.generator.train()
        
@@ -228,11 +243,15 @@ class TransformerTrainer():
           #d_loss = self.gan_loss(self.discriminator, d_fake, fake_gumbel.data, d_real, F.one_hot(target, num_classes=self.vocab_size).data,
           #                      mode='d', add_disc_inputs=[conds, target_mask])
           d_loss = self.gan_loss(d_fake, d_real, mode ='d')
+          gp = self.get_gp(fake, F.one_hot(target, num_classes=self.vocab_size), [conds, target_mask], norm_value=0)
           if self.local_loss != None:
             d_loss_local = self.local_loss(d_fake_local, d_real_local, mode='d', mask=self.discriminator.get_patch_loss_mask(target_mask).unsqueeze(-1))
+            gp_local = self.get_gp(fake, F.one_hot(target, num_classes=self.vocab_size), [conds, target_mask], norm_value=0, pos=1)
             #print(d_loss.item(), d_loss_local.item())
             d_loss += d_loss_local
-                        
+            gp += gp_local
+
+          d_loss = d_loss + 10*gp         
           self.d_optimizer.zero_grad()                  
           # loss /= self.accumulation_steps
           d_loss.backward()
