@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-
+import torch.nn.functional as F
 
 class MultiCrossEntropyLoss(nn.Module):
   def __init__(self, *args, **kwargs):
@@ -80,7 +80,7 @@ def wgan_loss(discriminator, d_fake, fake=None, d_real=None, real= None, mode='d
     interp = torch.autograd.Variable(interp, requires_grad=True)
     
     #feed conditions and mask to disc
-    d_interp = discriminator(interp, *add_disc_inputs)
+    d_interp,_ = discriminator(interp, *add_disc_inputs)
     gp = torch.autograd.grad(outputs=d_interp, inputs=interp,
                               grad_outputs=torch.ones_like(d_interp),
                               create_graph=True, retain_graph=True)[0]          
@@ -92,4 +92,18 @@ def wgan_loss(discriminator, d_fake, fake=None, d_real=None, real= None, mode='d
   
   elif mode == 'g':
     g_loss = -d_fake.mean()
+    return g_loss
+
+
+def hinge_loss(d_fake, d_real=None, mode ='d', mask=None):
+  loss_mask = torch.ones_like(d_fake) if mask == None else mask
+  #print(d_fake.shape, loss_mask.shape)
+
+  if mode == 'd':
+    loss_real = torch.mean(F.relu(1. - d_real)*loss_mask)
+    loss_fake = torch.mean(F.relu(1. + d_fake)*loss_mask)
+    d_loss = 0.5 * (loss_real + loss_fake)
+    return d_loss
+  elif mode == 'g':
+    g_loss = -(d_fake*loss_mask).mean()
     return g_loss

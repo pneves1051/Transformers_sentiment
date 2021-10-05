@@ -77,6 +77,9 @@ class Generator(nn.Module):
     
     return (y_onehot - y).detach() + y
   
+  def get_last_layer(self):
+    return self.to_out.weight
+  
   def forward(self, inputs, cond=None, temperature = 1, input_mask = None):    
     #src = self.embedding(input)*math.sqrt(self.d_model)
     #src = self.pos_encoder(src)
@@ -156,6 +159,7 @@ class Discriminator(nn.Module):
     
     self.norm = nn.LayerNorm(dim)
     self.to_out = nn.Linear(dim, num_tokens)   
+
    
 
   def generate_square_subsequent_mask(self, sz, device):
@@ -250,6 +254,7 @@ class PatchDiscriminator(nn.Module):
     
     self.cond_embedding = nn.Embedding(cond_dim, dim)
     self.to_out = nn.Linear(dim, 1)   
+    self.to_out_local = nn.Linear(dim, 1)
    
   def init_weights(self):
     initrange = 0.1
@@ -304,10 +309,14 @@ class PatchDiscriminator(nn.Module):
     x = self.norm(x)
 
     #out_class = x[:, 0]
-    out_class = torch.sum(x[:, 1:], dim=1)
-    out = self.to_out(out_class)
+    #out = self.to_out(out_class)
+    
+    out_class = x[:, 0]
+    out_global = self.to_out(out_class)
     if cond != None:
       cond_proj = torch.sum(self.cond_embedding(cond)*out_class, dim=1, keepdim=True)
-      out += cond_proj
+      out_global += cond_proj
+    
+    out_local = self.to_out_local(x[:, 1:])
 
-    return out # , features
+    return out_global, out_local

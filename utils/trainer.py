@@ -29,7 +29,7 @@ def warmup_cosine_lambda(step, warmup_steps, training_steps, cycles = 0.5):
 
 class TransformerTrainer():
   def __init__(self, generator, discriminator, dataloader, valid_dataloader, ce_loss, gan_loss, device, g_lr, d_lr,
-               vocab_size, d_iters=5, total_iters=100000, temperature=100, gan_hp = 1, accumulation_steps=1, schedule='constant'):
+               vocab_size, d_iters=5, total_iters=100000, temperature=100, gan_hp = 1, accumulation_steps=1, schedule='constant', local_loss = None):
     self.generator = generator
     self.discriminator = discriminator
 
@@ -37,6 +37,8 @@ class TransformerTrainer():
     self.valid_dataloader = valid_dataloader
     self.ce_loss = ce_loss
     self.gan_loss = gan_loss
+    self.local_loss = local_loss
+    
     self.device=device
     
     self.g_optimizer = torch.optim.AdamW(self.generator.parameters(), lr = g_lr)#, betas=(0.9, 0.98))
@@ -59,8 +61,7 @@ class TransformerTrainer():
                             lambda x: 1.)
       self.d_scheduler = torch.optim.lr_scheduler.LambdaLR(self.d_optimizer, 
                             lambda x: 1.)
-   
-    if schedule == 'constant_with_warmup':
+    elif schedule == 'constant_with_warmup':
       self.g_scheduler = torch.optim.lr_scheduler.LambdaLR(self.g_optimizer,
                             partial(warmup_constant_lambda, warmup_steps = total_iters//5))
       self.d_scheduler = torch.optim.lr_scheduler.LambdaLR(self.d_optimizer, 
@@ -77,6 +78,15 @@ class TransformerTrainer():
       raise KeyError('Schedule ' + schedule + ' not found.')
 
    
+  def get_loss_hp(self, rec_loss, g_loss, last_layer):
+    rec_grads = torch.autograd.grad(rec_loss, last_layer, retain_graph=True)[0]
+    g_grads = torch.autograd.grad(g_loss, last_layer, retain_graph=True)[0]
+    
+    disc_weight = torch.linalg.norm(rec_grads.flatten(1), 'fro') /(torch.linalg.norm(g_grads.flatten(1), 'fro') + 1e-4)
+    disc_weight = torch.clamp(disc_weight, 0.0, 1e5).detach()
+    
+    return disc_weight
+  
   def train_epoch(self, log_interval=20):
     self.generator.train()
        
@@ -169,7 +179,7 @@ class TransformerTrainer():
       # loader = chain(*self.dataloader)
       #len_loader = sum([len(l) for l in self.dataloader]) 
       loader = zip(*self.dataloader)
-      len_loader = min([len(l) for l in self.dataloader] )
+      len_loader = len(self.dtaloader)*min([len(l) for l in self.dataloader] )
     else:
       loader = self.dataloader
       len_loader = len(self.dataloader)
@@ -200,11 +210,11 @@ class TransformerTrainer():
         
         for _ in range(self.d_iters):
           
-          d_real = self.discriminator(F.one_hot(input, num_classes=self.vocab_size), cond=conds, input_mask=input_mask)
+          d_real, d_real_local = self.discriminator(F.one_hot(input, num_classes=self.vocab_size), cond=conds, input_mask=input_mask)
           
           temperature = self.get_temperature()
           fake, fake_gumbel = self.generator(input, cond=conds, temperature=temperature, input_mask=input_mask)
-          d_fake = self.discriminator(fake_gumbel, cond=conds, input_mask=input_mask)
+          d_fake, d_fake_local = self.discriminator(fake_gumbel, cond=conds, input_mask=input_mask)
 
           '''
           clone_out = fake.clone()
@@ -214,8 +224,14 @@ class TransformerTrainer():
           '''
 
           # Chunk and calculate loss
-          d_loss = self.gan_loss(self.discriminator, d_fake, fake_gumbel.data, d_real, F.one_hot(target, num_classes=self.vocab_size).data,
-                                mode='d', add_disc_inputs=[conds, target_mask])
+          # TEST HINGE LOSS
+          #d_loss = self.gan_loss(self.discriminator, d_fake, fake_gumbel.data, d_real, F.one_hot(target, num_classes=self.vocab_size).data,
+          #                      mode='d', add_disc_inputs=[conds, target_mask])
+          d_loss = self.gan_loss(d_fake, d_real, mode ='d')
+          if self.local_loss != None:
+            d_loss_local = self.local_loss(d_fake_local, d_real_local, mode='d', mask=self.discriminator.get_patch_loss_mask(target_mask).unsqueeze(-1))
+            #print(d_loss.item(), d_loss_local.item())
+            d_loss += d_loss_local
                         
           self.d_optimizer.zero_grad()                  
           # loss /= self.accumulation_steps
@@ -236,7 +252,7 @@ class TransformerTrainer():
         
         temperature=self.get_temperature()
         fake, fake_gumbel = self.generator(input, cond=conds, temperature=temperature, input_mask=input_mask)
-        d_fake = self.discriminator(fake_gumbel, cond=conds, input_mask=input_mask)
+        d_fake, d_fake_local  = self.discriminator(fake_gumbel, cond=conds, input_mask=input_mask)
 
         '''
         feat_loss = 0
@@ -244,8 +260,18 @@ class TransformerTrainer():
           feat_loss += self.L1Loss(feat_fake, feat_real.detach(), self.discriminator.get_patch_loss_mask(target_mask))
         '''
         
+        #AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA  
         mle_loss = self.ce_loss(fake, target, loss_mask=target_mask)    
-        gan_g_loss = self.gan_loss(self.discriminator, d_fake, mode='g')
+        # TEST HINGE LOSS
+        #gan_g_loss = self.gan_loss(self.discriminator, d_fake, mode='g')
+        gan_g_loss = self.gan_loss(d_fake, mode='g')
+        if self.local_loss != None:
+          gan_g_loss_local = self.local_loss(d_fake_local, mode='g', mask=self.discriminator.get_patch_loss_mask(target_mask).unsqueeze(-1))
+          #print(gan_g_loss.item(), gan_g_loss_local.item())
+          gan_g_loss += gan_g_loss_local
+
+
+        loss_hp = self.get_loss_hp(mle_loss, gan_g_loss, self.generator.get_last_layer())
         g_loss = mle_loss + self.gan_hp*gan_g_loss
         
         # loss /= self.accumulation_steps
@@ -272,12 +298,12 @@ class TransformerTrainer():
           current_g_loss = np.mean(g_losses)
 
           print('| {:5d} of {:5d} batches | d_lr {:02.7f} | g_lr {:02.7f} | ms/batch {:5.2f} | '
-                'loss {:5.6f} | acc {:8.6f} | D_loss: {} | G_loss: {} |'.format(
+                'loss {:5.6f} | acc {:8.6f} | D_loss: {} | G_loss: {} | loss_hp: {}'.format(
                 index, len_loader, 
                 self.d_scheduler.get_last_lr()[0], self.g_scheduler.get_last_lr()[0],
                 elapsed*1000/log_interval,
                 current_loss,  correct_predictions/total_elements, 
-                current_d_loss, current_g_loss))
+                current_d_loss, current_g_loss, loss_hp))
           start_time = time.time()
 
         self.num_iters += 1
