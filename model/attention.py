@@ -27,11 +27,12 @@ class ConditionalLayerNorm(nn.Module):
   def forward(self, x, y=None):
     out = self.ln(x)
     #print(out.shape)
-    gamma, beta = self.un_gamma, self.un_beta
     if y != None:
-        gamma_c, beta_c = self.cond_embed(y).chunk(2, 1)
-        gamma = gamma + gamma_c
-        beta = beta + beta_c
+        gamma, beta = self.cond_embed(y).chunk(2, 1)
+        #gamma = gamma + gamma_c
+        #beta = beta + beta_c
+    else:
+        gamma, beta = self.un_gamma, self.un_beta
          
     out = gamma.view(-1, 1, self.num_features) * out + beta.view(-1, 1, self.num_features)
     return out

@@ -93,3 +93,16 @@ def hinge_loss(d_fake, d_real=None, mode ='d', mask=None):
   elif mode == 'g':
     g_loss = -(d_fake*loss_mask).mean()
     return g_loss
+
+
+def rs_loss(d_fake, d_real=None, mode ='d', mask=None):
+  loss_mask = torch.ones_like(d_fake) if mask == None else mask
+  
+  if mode == 'd':
+    d_loss = (-(torch.log(torch.sigmoid(d_real - d_fake)))*loss_mask).mean()
+
+    return d_loss
+  elif mode == 'g':
+    g_loss = (-(torch.log(torch.sigmoid(d_fake - d_real)))*loss_mask).mean()
+
+    return g_loss
