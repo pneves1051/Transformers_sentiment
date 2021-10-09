@@ -41,8 +41,8 @@ class TransformerTrainer():
     
     self.device=device
     
-    self.g_optimizer = torch.optim.AdamW(self.generator.parameters(), lr = g_lr)#, betas=(0.9, 0.98))
-    self.d_optimizer = torch.optim.AdamW(self.discriminator.parameters(), lr = d_lr)#, betas=(0.9, 0.98))
+    self.g_optimizer = torch.optim.Adam(self.generator.parameters(), lr = g_lr)#, betas=(0.9, 0.98))
+    self.d_optimizer = torch.optim.Adam(self.discriminator.parameters(), lr = d_lr)#, betas=(0.9, 0.98))
 
     self.vocab_size = vocab_size
     self.d_iters = d_iters
@@ -227,8 +227,8 @@ class TransformerTrainer():
           
           d_real, d_real_local = self.discriminator(F.one_hot(input, num_classes=self.vocab_size), cond=conds, input_mask=input_mask)
           
-          temperature = self.get_temperature()
-          fake, fake_gumbel = self.generator(input, cond=conds, temperature=temperature, input_mask=input_mask)
+          inverse_temperature = self.get_inverse_temperature()
+          fake, fake_gumbel = self.generator(input, cond=conds, inverse_temperature=inverse_temperature, input_mask=input_mask)
           d_fake, d_fake_local = self.discriminator(fake_gumbel, cond=conds, input_mask=input_mask)
 
           '''
@@ -243,10 +243,10 @@ class TransformerTrainer():
           #d_loss = self.gan_loss(self.discriminator, d_fake, fake_gumbel.data, d_real, F.one_hot(target, num_classes=self.vocab_size).data,
           #                      mode='d', add_disc_inputs=[conds, target_mask])
           d_loss = self.gan_loss(d_fake, d_real, mode ='d')
-          gp = self.get_gp(fake, F.one_hot(target, num_classes=self.vocab_size), [conds, target_mask], norm_value=0)
+          gp = self.get_gp(fake, F.one_hot(target, num_classes=self.vocab_size), [conds, target_mask], norm_value=1)
           if self.local_loss != None:
             d_loss_local = self.local_loss(d_fake_local, d_real_local, mode='d', mask=self.discriminator.get_patch_loss_mask(target_mask).unsqueeze(-1))
-            gp_local = self.get_gp(fake, F.one_hot(target, num_classes=self.vocab_size), [conds, target_mask], norm_value=0, pos=1)
+            gp_local = self.get_gp(fake, F.one_hot(target, num_classes=self.vocab_size), [conds, target_mask], norm_value=1, pos=1)
             #print(d_loss.item(), d_loss_local.item())
             d_loss += d_loss_local
             gp += gp_local
@@ -269,8 +269,11 @@ class TransformerTrainer():
         for p in self.discriminator.parameters():
           p.requires_grad = False      
         
-        temperature=self.get_temperature()
-        fake, fake_gumbel = self.generator(input, cond=conds, temperature=temperature, input_mask=input_mask)
+        
+        d_real, d_real_local = self.discriminator(F.one_hot(input, num_classes=self.vocab_size), cond=conds, input_mask=input_mask)
+                
+        temperature=self.get_inverse_temperature()
+        fake, fake_gumbel = self.generator(input, cond=conds, inverse_temperature=inverse_temperature, input_mask=input_mask)
         d_fake, d_fake_local  = self.discriminator(fake_gumbel, cond=conds, input_mask=input_mask)
 
         '''
@@ -283,9 +286,9 @@ class TransformerTrainer():
         mle_loss = self.ce_loss(fake, target, loss_mask=target_mask)    
         # TEST HINGE LOSS
         #gan_g_loss = self.gan_loss(self.discriminator, d_fake, mode='g')
-        gan_g_loss = self.gan_loss(d_fake, mode='g')
+        gan_g_loss = self.gan_loss(d_fake, d_real, mode='g')
         if self.local_loss != None:
-          gan_g_loss_local = self.local_loss(d_fake_local, mode='g', mask=self.discriminator.get_patch_loss_mask(target_mask).unsqueeze(-1))
+          gan_g_loss_local = self.local_loss(d_fake_local, d_real_local, mode='g', mask=self.discriminator.get_patch_loss_mask(target_mask).unsqueeze(-1))
           #print(gan_g_loss.item(), gan_g_loss_local.item())
           gan_g_loss += gan_g_loss_local
 
@@ -424,9 +427,9 @@ class TransformerTrainer():
         
     return eval_acc, eval_loss
 
-  def get_temperature(self):
-    temperature = self.temperature**(self.num_iters/self.total_iters)
-    return temperature
+  def get_inverse_temperature(self):
+    inverse_temperature = self.temperature**(self.num_iters/self.total_iters)
+    return inverse_temperature
   
   def save_model(self, checkpoint_dir):
     torch.save(self.model.state_dict(), checkpoint_dir + 'best_transformer_state.bin')
@@ -458,7 +461,6 @@ class TransformerTrainer():
     torch.save(checkpoint, checkpoint_dir + 'tr_checkpoint.pth')
     with open(checkpoint_dir + 'history.pkl', 'wb') as f:
       pkl.dump(self.history, f)
-
 
 
 

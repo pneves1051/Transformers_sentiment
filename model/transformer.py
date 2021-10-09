@@ -67,11 +67,11 @@ class Generator(nn.Module):
     self.to_out.weight.data.uniform_(-initrange, initrange)
 
   
-  def gumbel(self, logits, temperature):
+  def gumbel(self, logits, inverse_temperature):
     gumbel_sample = torch.distributions.gumbel.Gumbel(loc=torch.zeros_like(logits), scale=torch.ones_like(logits)).sample()
     gumbel_sample = torch.autograd.Variable(gumbel_sample)
 
-    y = F.softmax((logits + gumbel_sample)/temperature, dim = -1)
+    y = F.softmax((logits + gumbel_sample)*inverse_temperature, dim = -1)
 
     y_onehot = F.one_hot(torch.argmax(y, dim = -1), num_classes = y.shape[-1])
     
@@ -80,7 +80,7 @@ class Generator(nn.Module):
   def get_last_layer(self):
     return self.to_out.weight
   
-  def forward(self, inputs, cond=None, temperature = 1, input_mask = None):    
+  def forward(self, inputs, cond=None, inverse_temperature = 1, input_mask = None):    
     #src = self.embedding(input)*math.sqrt(self.d_model)
     #src = self.pos_encoder(src)
     # cond = F.one_hot(cond.long(), self.cond_dim).float()
@@ -109,7 +109,7 @@ class Generator(nn.Module):
 
     out = self.to_out(x)
 
-    out_gumbel = self.gumbel(out, temperature)
+    out_gumbel = self.gumbel(out, inverse_temperature)
     return out, out_gumbel
 
 
