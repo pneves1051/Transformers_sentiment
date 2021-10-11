@@ -34,7 +34,7 @@ class ConditionalLayerNorm(nn.Module):
         #beta = beta + beta_c
     else:
         #gamma, beta = self.un_gamma, self.un_beta
-        gamma, beta = self.cond_embed(torch.arange(0, self.num_classes)).mean(0).chunk(2)
+        gamma, beta = self.cond_embed(torch.arange(0, self.num_classes, device=x.device)).mean(0).chunk(2)
                  
     out = gamma.view(-1, 1, self.num_features) * out + beta.view(-1, 1, self.num_features)
     return out
