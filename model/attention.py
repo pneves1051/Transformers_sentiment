@@ -15,6 +15,7 @@ class ConditionalLayerNorm(nn.Module):
   def __init__(self, num_features, num_classes):
     super().__init__()
     self.num_features = num_features
+    self.num_classes = num_classes
     self.ln = nn.LayerNorm(num_features, elementwise_affine=False)
 
     self.un_gamma = nn.Parameter(torch.normal(1., 0.02, size=(num_features,)))
@@ -26,14 +27,15 @@ class ConditionalLayerNorm(nn.Module):
 
   def forward(self, x, y=None):
     out = self.ln(x)
-    #print(out.shape)
+    
     if y != None:
         gamma, beta = self.cond_embed(y).chunk(2, 1)
         #gamma = gamma + gamma_c
         #beta = beta + beta_c
     else:
-        gamma, beta = self.un_gamma, self.un_beta
-         
+        #gamma, beta = self.un_gamma, self.un_beta
+        gamma, beta = self.cond_embed(torch.arange(0, self.num_classes)).mean(0).chunk(2)
+                 
     out = gamma.view(-1, 1, self.num_features) * out + beta.view(-1, 1, self.num_features)
     return out
 

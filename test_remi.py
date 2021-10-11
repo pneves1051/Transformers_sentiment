@@ -9,7 +9,7 @@ from data.process_data import MIDIEncoderREMI
 from data.dataset import TransformerDatasetREMI
 from model.transformer import Generator, PatchDiscriminator
 from utils.trainer import TransformerTrainer
-from utils.losses import wgan_loss, TransfoCrossEntropyLoss, hinge_loss
+from utils.losses import wgan_loss, TransfoCrossEntropyLoss, hinge_loss, rs_loss
 
 
 sys.path.append('..')
@@ -81,4 +81,4 @@ trainer = TransformerTrainer(transformer_gen, transformer_disc, [dataloader1, da
                             train_hps['g_lr'], train_hps['d_lr'], vocab_size, d_iters = train_hps['d_iters'], total_iters=train_hps['total_iters'],
                             temperature=train_hps['temperature'], gan_hp=train_hps['gan_hp'], schedule='constant', local_loss=local_gan_loss)
 
-history = trainer.train(100, checkpoint_dir, validate=False, log_interval=40, load=False, save=False, change_lr=False, train_gan=True)
+history = trainer.train(30, checkpoint_dir, validate=False, log_interval=40, load=False, save=False, change_lr=False, train_gan=True)

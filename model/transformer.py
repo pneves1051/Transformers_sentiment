@@ -308,15 +308,22 @@ class PatchDiscriminator(nn.Module):
     # norm and to logits
     x = self.norm(x)
 
-    #out_class = x[:, 0]
-    #out = self.to_out(out_class)
-    
     out_class = x[:, 0]
     out_global = self.to_out(out_class)
-    if cond != None:
-      cond_proj = torch.sum(self.cond_embedding(cond)*out_class, dim=1, keepdim=True)
-      out_global += cond_proj
     
-    out_local = self.to_out_local(x[:, 1:])
+    out_seq = x[:, 1:]
+    out_local = self.to_out_local(out_seq)
+
+    if cond != None:
+      cond_embedding = self.cond_embedding(cond)
+
+      cond_proj_global = torch.sum(cond_embedding*out_class, dim=-1, keepdim=True)
+      out_global += cond_proj_global
+
+      cond_proj_local = torch.sum(cond_embedding.unsqueeze(1)*out_seq, dim=-1, keepdim=True)
+      out_local += cond_proj_local
+
+      #print(out_local.shape, out_global.shape)
+
 
     return out_global, out_local
