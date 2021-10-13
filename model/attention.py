@@ -18,24 +18,18 @@ class ConditionalLayerNorm(nn.Module):
     self.num_classes = num_classes
     self.ln = nn.LayerNorm(num_features, elementwise_affine=False)
 
-    self.un_gamma = nn.Parameter(torch.normal(1., 0.02, size=(num_features,)))
-    self.un_beta = nn.Parameter(torch.zeros(num_features))
-
-    self.cond_embed = nn.Embedding(num_classes, num_features * 2)
+    self.cond_embed = nn.Embedding(num_classes+1, num_features * 2)
     self.cond_embed.weight.data[:, :num_features].normal_(1, 0.02)  # Initialise scale at N(1, 0.02)
     self.cond_embed.weight.data[:, num_features:].zero_()  # Initialise bias at 0
 
   def forward(self, x, y=None):
     out = self.ln(x)
     
-    if y != None:
-        gamma, beta = self.cond_embed(y).chunk(2, 1)
-        #gamma = gamma + gamma_c
-        #beta = beta + beta_c
-    else:
-        #gamma, beta = self.un_gamma, self.un_beta
-        gamma, beta = self.cond_embed(torch.arange(0, self.num_classes, device=x.device)).mean(0).chunk(2)
-                 
+    if y == None:
+        y = torch.full((x.shape[0],), self.num_classes, device = x.device)
+    
+    gamma, beta = self.cond_embed(y).chunk(2, 1)
+    
     out = gamma.view(-1, 1, self.num_features) * out + beta.view(-1, 1, self.num_features)
     return out
 
