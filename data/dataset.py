@@ -186,6 +186,71 @@ class TransformerDatasetREMI(torch.utils.data.Dataset):
         batch = {'ids': self.ids[idx], 'input': input, 'target': target, 'input_mask': input_mask, 'target_mask': target_mask}
       return batch
 
+
+class ClassifierDataset(torch.utils.data.Dataset):
+   
+    def __init__(self, dataset_path, seq_len, labels_path, pad_idx = 0, eos_idx=1):
+      """
+        Args:
+            dataset: token dataset
+            ttps: tokens per second
+            seconds: seconds per example
+      """
+      
+      self.ids = []
+      self.sequences = []
+      self.masks = []
+      self.labels = []
+      
+      dataset = np.load(dataset_path, allow_pickle=True)
+      original_sequences = dataset['sequences']
+      for i in range(len(original_sequences)):
+        original_sequences[i] = np.append(original_sequences[i], eos_idx)
+      original_ids = dataset['ids']
+
+      label_csv = pd.read_csv(labels_path).set_index('ID')
+      
+      for i, data in enumerate(original_sequences):
+      
+        try: 
+          data_len = len(data)
+          padded_data = np.pad(data, (0, int((seq_len)*math.ceil(data_len/(seq_len))-data_len)),
+                               mode='constant', constant_values=(0, pad_idx))
+          split_data = np.split(padded_data, padded_data.shape[-1]//(seq_len))
+          
+          num_seq = len(split_data)
+          self.labels.extend([label_csv.loc[original_ids[i], '4Q'] - 1]*num_seq)
+          self.sequences.extend(split_data)      
+          self.masks.extend([seq != pad_idx for seq in split_data])
+          self.ids.extend([original_ids[i]]*num_seq)
+          
+        except KeyError as error:
+          print('Key not found', original_ids[i])
+          continue
+
+      if type(self.ids[0] == str):
+        self.ids = torch.arange(len(self.ids)).unsqueeze(-1)
+      else:
+        self.ids = torch.Tensor(self.ids)
+
+      self.sequences = torch.Tensor(self.sequences)
+      self.masks = torch.Tensor(self.masks)
+      
+      self.labels = torch.Tensor(self.labels)    
+        
+
+    def __len__(self):
+      return len(self.sequences)
+
+    def __getitem__(self, idx):
+      input = self.sequences[idx].long()
+      input_mask = self.masks[idx].long()
+      
+      batch = {'ids': self.ids[idx], 'input': input, 'target': self.labels[idx].long(), 'input_mask': input_mask}
+      
+      return batch
+
+
 '''
 class JoinedDataset(torch.utils.data.Dataset):
   def __init__(self, dataset_paths, seq_len, cond_path, pad_idx = 0, eos_idx=1):
