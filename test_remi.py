@@ -51,9 +51,11 @@ model_hps = hps['model']
 #device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 device = 'cpu'
 transformer_gen = Generator(vocab_size, model_hps['max_seq_len'], model_hps['dim'], model_hps['n_layers'],
-                            model_hps['n_heads'], model_hps['ff_dim'], cond_dim=model_hps['cond_dim']).to(device)
+                            model_hps['n_heads'], model_hps['ff_dim'], num_classes=model_hps['num_classes']).to(device)
 transformer_disc = PatchDiscriminator(vocab_size, model_hps['max_seq_len'], model_hps['dim'], model_hps['n_layers'],
-                            model_hps['n_heads'], model_hps['ff_dim'], cond_dim=model_hps['cond_dim'], patch_size=model_hps['patch_size']).to(device)
+                            model_hps['n_heads'], model_hps['ff_dim'], num_classes=model_hps['num_classes'], patch_size=model_hps['patch_size']).to(device)
+
+transformer_gen.copy_layernorm_params()
 
 
 data = next(iter(dataloader2))

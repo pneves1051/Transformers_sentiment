@@ -16,14 +16,14 @@ class Generator(nn.Module):
       n_layers=8,
       n_heads=8,
       ff_dim=2048,
-      cond_dim = 4,
+      num_classes = 4,
       dropout = 0.1
   ):
     super(Generator, self).__init__()
     self.model_type = 'Transformer'
     self.embed_size = dim
 
-    self.cond_dim = cond_dim
+    self.num_classes = num_classes
     self.src_mask = None
     self.n_heads = n_heads
 
@@ -31,7 +31,7 @@ class Generator(nn.Module):
 
     self.pos_emb = nn.Embedding(max_seq_len, dim)
        
-    self.cond_embedding = nn.Embedding(cond_dim, dim)
+    self.cond_embedding = nn.Embedding(num_classes, dim)
     self.cond_layers = nn.ModuleList([nn.Sequential(nn.Linear(dim, dim), nn.Tanh(), nn.Dropout(dropout)) for _ in range(n_layers)])
     
     self.rotary = Rotary(dim=dim//n_heads)
@@ -45,13 +45,13 @@ class Generator(nn.Module):
             ff_dim,
             dropout=dropout,
             activation="gelu",
-            num_classes=cond_dim                  
+            num_classes=num_classes                  
         ) for l in range(n_layers)
     ])
     
     self.dropout = nn.Dropout(dropout)
     
-    self.norm = ConditionalLayerNorm(dim, cond_dim)
+    self.norm = ConditionalLayerNorm(dim, num_classes)
     self.to_out = nn.Linear(dim, num_tokens)   
 
     self.gumbel_dist = torch.distributions.gumbel.Gumbel(loc=0, scale=1)
@@ -60,13 +60,21 @@ class Generator(nn.Module):
     """Generates an upper-triangular matrix of -inf, with zeros on diag."""
     return torch.triu(torch.ones(sz, sz) * float('-inf'), diagonal=1).to(device)
 
+  
   def init_weights(self):
     initrange = 0.1
     self.embedding.weight.data.uniform_(-initrange, initrange)
     self.to_out.bias.data.zero_()
     self.to_out.weight.data.uniform_(-initrange, initrange)
 
-  
+  def copy_layernorm_params(self):
+    for name, layer in self.named_modules():
+      if isinstance(layer, ConditionalLayerNorm):
+        print(layer.cond_embed.weight.data)
+        layer.cond_embed.weight.data[:-1, :] = layer.cond_embed.weight.data[-1:, :].repeat(self.num_classes, 1)
+        assert torch.equal(layer.cond_embed.weight.data[0], layer.cond_embed.weight.data[1])
+
+
   def gumbel(self, logits, inverse_temperature):
     gumbel_sample = torch.distributions.gumbel.Gumbel(loc=torch.zeros_like(logits), scale=torch.ones_like(logits)).sample()
     gumbel_sample = torch.autograd.Variable(gumbel_sample)
@@ -213,7 +221,7 @@ class PatchDiscriminator(nn.Module):
       n_layers=8,
       n_heads=8,
       ff_dim=2048,
-      cond_dim = 4,
+      num_classes = 4,
       dropout = 0.1,
       patch_size=16
   ):
@@ -223,7 +231,7 @@ class PatchDiscriminator(nn.Module):
     self.vocab_size = num_tokens 
     self.embed_size = dim
 
-    self.cond_dim = cond_dim
+    self.cond_dim = num_classes
     self.src_mask = None
     self.patch_size = patch_size
     
@@ -252,7 +260,7 @@ class PatchDiscriminator(nn.Module):
     self.dropout = nn.Dropout(dropout)
     self.norm = nn.LayerNorm(dim)
     
-    self.cond_embedding = nn.Embedding(cond_dim, dim)
+    self.cond_embedding = nn.Embedding(num_classes, dim)
     self.to_out = nn.Linear(dim, 1)   
     self.to_out_local = nn.Linear(dim, 1)
    
