@@ -1,12 +1,15 @@
+from fast_transformers import transformers
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import fast_transformers
 from fast_transformers.attention.linear_attention import LinearAttention
 from fast_transformers.attention.causal_linear_attention import CausalLinearAttention
+from fast_transformers.recurrent.attention.self_attention import RecurrentLinearAttention
 from fast_transformers.attention import AttentionLayer
 from fast_transformers.transformers import TransformerEncoderLayer
-from .attention import RelativeTransformerEncoderLayer, RelativeAttentionLayer, Rotary, ConditionalLayerNorm
+from .attention import RelativeTransformerEncoderLayer, RelativeAttentionLayer, RelativeRecurrentAttentionLayer, RelativeRecurrentTransformerEncoderLayer, Rotary, ConditionalLayerNorm
+from fast_transformers.utils import make_mirror
 
 class Generator(nn.Module):
   def __init__(self,
@@ -17,7 +20,8 @@ class Generator(nn.Module):
       n_heads=8,
       ff_dim=2048,
       num_classes = 4,
-      dropout = 0.1
+      dropout = 0.1,
+      prime_seq_len = 128
   ):
     super(Generator, self).__init__()
     self.model_type = 'Transformer'
@@ -48,13 +52,30 @@ class Generator(nn.Module):
             num_classes=num_classes                  
         ) for l in range(n_layers)
     ])
-    
+
+    self.recurrent_transformer = nn.ModuleList(
+    [
+        RelativeRecurrentTransformerEncoderLayer(
+            RelativeRecurrentAttentionLayer(RecurrentLinearAttention(dim//n_heads), dim, n_heads, d_keys=dim//n_heads,
+                 d_values=dim//n_heads),
+            dim,
+            ff_dim,
+            dropout=dropout,
+            activation="gelu",
+            num_classes=num_classes                  
+        ) for l in range(n_layers)
+    ])
+
+    make_mirror(self.transformer, self.recurrent_transformer)
+
     self.dropout = nn.Dropout(dropout)
     
     self.norm = ConditionalLayerNorm(dim, num_classes)
     self.to_out = nn.Linear(dim, num_tokens)   
 
     self.gumbel_dist = torch.distributions.gumbel.Gumbel(loc=0, scale=1)
+
+    self.prime_seq_len = prime_seq_len
 
   def generate_square_subsequent_mask(self, sz, device):
     """Generates an upper-triangular matrix of -inf, with zeros on diag."""
@@ -70,9 +91,8 @@ class Generator(nn.Module):
   def copy_layernorm_params(self):
     for name, layer in self.named_modules():
       if isinstance(layer, ConditionalLayerNorm):
-        print(layer.cond_embed.weight.data)
         layer.cond_embed.weight.data[:-1, :] = layer.cond_embed.weight.data[-1:, :].repeat(self.num_classes, 1)
-        assert torch.equal(layer.cond_embed.weight.data[0], layer.cond_embed.weight.data[1])
+        assert torch.equal(layer.cond_embed.weight.data[0], layer.cond_embed.weight.data[1])  
 
 
   def gumbel(self, logits, inverse_temperature):
@@ -119,6 +139,53 @@ class Generator(nn.Module):
 
     out_gumbel = self.gumbel(out, inverse_temperature)
     return out, out_gumbel
+
+  def forward_recurrent(self, inputs, cond=None, inverse_temperature = 1, input_mask = None):
+    N, total_seq_len = inputs.shape
+    
+    ps = inputs[:, :self.prime_seq_len]
+            
+    ps = self.embedding(ps)
+
+    N, seq_len,_ = ps.shape
+
+    pos_emb = self.pos_emb(torch.arange(seq_len, device=ps.device).unsqueeze(0).expand(N,seq_len))
+    ps = self.dropout(ps + pos_emb)
+    
+    state = [None]*len(self.recurrent_transformer)
+    for i in range(0, self.prime_seq_len):
+      x = ps[:, i]
+      for j, layer in enumerate(self.recurrent_transformer):
+        x, s = layer(x, rotary=self.rotary, cond=cond, state=state[j])
+        state[j] = s
+        
+      # norm and to logits
+      x = self.norm(x, cond)
+    
+    seq_gen = ps
+    for i in range(self.prime_seq_len, total_seq_len):
+      N, seq_len,_ = seq_gen.shape
+      pos_emb = self.pos_emb(torch.arange(seq_len, device=seq_gen.device).unsqueeze(0).expand(N,seq_len))
+      seq_gen = self.dropout(seq_gen + pos_emb)
+
+      x = seq_gen[:, -1]
+      for j, layer in enumerate(self.recurrent_transformer):
+
+        x, s = layer(x, rotary=self.rotary, cond=cond, state=state[j])
+        state[j] = s
+
+      # norm and to logits
+      x = self.norm(x, cond)
+      seq_gen = torch.cat([seq_gen, x.unsqueeze(1)], dim=1)
+      #print(x.shape, seq_gen.shape)
+
+
+    out = self.to_out(seq_gen)
+
+    out_gumbel = self.gumbel(out, inverse_temperature)
+    return out, out_gumbel
+
+
 
 
 class Discriminator(nn.Module):

@@ -1,4 +1,5 @@
 import glob
+import time
 import os
 import sys
 import yaml
@@ -51,7 +52,7 @@ model_hps = hps['model']
 #device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 device = 'cpu'
 transformer_gen = Generator(vocab_size, model_hps['max_seq_len'], model_hps['dim'], model_hps['n_layers'],
-                            model_hps['n_heads'], model_hps['ff_dim'], num_classes=model_hps['num_classes']).to(device)
+                            model_hps['n_heads'], model_hps['ff_dim'], num_classes=model_hps['num_classes'], prime_seq_len=32).to(device)
 transformer_disc = PatchDiscriminator(vocab_size, model_hps['max_seq_len'], model_hps['dim'], model_hps['n_layers'],
                             model_hps['n_heads'], model_hps['ff_dim'], num_classes=model_hps['num_classes'], patch_size=model_hps['patch_size']).to(device)
 
@@ -64,9 +65,12 @@ test_mask = data['input_mask'].to(device)
 if 'conditions' in data:
     test_conds = data['conditions'].to(device)
     
-
+time0 = time.time()
 transformer_gen(test_inp, input_mask=test_mask)
-
+print(time.time()-time0)
+time0 = time.time()
+transformer_gen.forward_recurrent(test_inp)
+print(time.time()-time0)
 #transformer_disc(F.one_hot(data, num_classes = vocab_size))
 
 print(device)
@@ -83,4 +87,4 @@ trainer = TransformerTrainer(transformer_gen, transformer_disc, [dataloader1, da
                             train_hps['g_lr'], train_hps['d_lr'], vocab_size, d_iters = train_hps['d_iters'], total_iters=train_hps['total_iters'],
                             temperature=train_hps['temperature'], gan_hp=train_hps['gan_hp'], schedule='constant', local_loss=local_gan_loss)
 
-history = trainer.train(30, checkpoint_dir, validate=False, log_interval=40, load=False, save=False, change_lr=False, train_gan=True)
+history = trainer.train(30, checkpoint_dir, validate=False, log_interval=40, load=False, save=False, train_gan=True)
