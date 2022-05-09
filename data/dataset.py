@@ -113,7 +113,7 @@ class TransformerDataset2(torch.utils.data.Dataset):
 
 class TransformerDatasetREMI(torch.utils.data.Dataset):
    
-    def __init__(self, dataset_path, seq_len, cond_path=None, pad_idx = 0, eos_idx=1):
+    def __init__(self, dataset_path, seq_len, cond_path=None, pad_idx = 0, eos_idx=1, drop_last=False):
       """
         Args:
             dataset: token dataset
@@ -128,8 +128,9 @@ class TransformerDatasetREMI(torch.utils.data.Dataset):
       
       dataset = np.load(dataset_path, allow_pickle=True)
       original_sequences = dataset['sequences']
-      for i in range(len(original_sequences)):
-        original_sequences[i] = np.append(original_sequences[i], eos_idx)
+      if not drop_last:
+        for i in range(len(original_sequences)):
+          original_sequences[i] = np.append(original_sequences[i], eos_idx)
       original_ids = dataset['ids']
 
       self.cond = (cond_path != None)
@@ -143,7 +144,9 @@ class TransformerDatasetREMI(torch.utils.data.Dataset):
           #print(int((seq_len+1)*math.ceil(data_len/(seq_len+1))-data_len))
           padded_data = np.pad(data, (0, int((seq_len+1)*math.ceil(data_len/(seq_len+1))-data_len)), mode='constant', constant_values=(0, pad_idx))
           split_data = np.split(padded_data, padded_data.shape[-1]//(seq_len+1))
-          
+          if drop_last and 0 in split_data[-1]:
+            split_data = split_data[:-1]
+
           num_seq = len(split_data)
           
           if self.cond:

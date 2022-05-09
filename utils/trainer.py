@@ -28,13 +28,14 @@ def warmup_cosine_lambda(step, warmup_steps, training_steps, cycles = 0.5):
 
 
 class TransformerTrainer():
-  def __init__(self, generator, discriminator, dataloader, valid_dataloader, ce_loss,
+  def __init__(self, generator, discriminator, dataloader, gan_dataloader, valid_dataloader, ce_loss,
                gan_loss, device, g_lr, d_lr, vocab_size, d_iters=5, total_iters=100000,
                warmup_steps=0, pretraining_steps=0, temperature=100, gan_hp = 1, schedule='constant', local_loss = None):
     self.generator = generator
     self.discriminator = discriminator
 
     self.dataloader = dataloader
+    self.gan_dataloader=gan_dataloader
     self.valid_dataloader = valid_dataloader
     self.ce_loss = ce_loss
     self.gan_loss = gan_loss
@@ -77,7 +78,7 @@ class TransformerTrainer():
     else:
       raise KeyError('Schedule ' + schedule + ' not found.')
 
-   
+       
   def get_loss_hp(self, rec_loss, g_loss, last_layer):
     rec_grads = torch.autograd.grad(rec_loss, last_layer, retain_graph=True)[0]
     g_grads = torch.autograd.grad(g_loss, last_layer, retain_graph=True)[0]
@@ -143,8 +144,6 @@ class TransformerTrainer():
           b_size, seq_len = target.shape
         
         outputs,_= self.generator(input, cond=conds, input_mask=input_mask)
-        #mask = torch.ones_like(inputs).bool()
-        #outputs = self.generator(inputs, mask=mask)
         
         self.g_optimizer_mle.zero_grad()                  
         loss = self.ce_loss(outputs, target, loss_mask=target_mask)
@@ -195,159 +194,157 @@ class TransformerTrainer():
     start_time = time.time()
     index = 0
   
-    if isinstance(self.dataloader, list):
-      # loader = chain(*self.dataloader)
-      #len_loader = sum([len(l) for l in self.dataloader]) 
-      loader = zip(*self.dataloader)
-      len_loader = len(self.dataloader)*min([len(l) for l in self.dataloader] )
+    if isinstance(self.dataloader, list) :
+      loader = zip(*[self.dataloader[-1], self.gan_dataloader])
+      len_loader = min([len(self.dataloader[-1]), len(self.gan_dataloader)])
     else:
-      loader = self.dataloader
-      len_loader = len(self.dataloader)
-    for data_pack in loader:
-      # Solution to allow one or more dataloaders simultaneously
-      data_pack = [data_pack] if not isinstance(self.dataloader, list) else data_pack
-      for data in data_pack:
-        input = data['input'].to(self.device)
-                
-        target = data['target'].to(self.device)
-        input_mask = data['input_mask'].to(self.device)
-        target_mask = data['target_mask'].to(self.device)
+      loader = zip(*[self.dataloader, self.gan_dataloader])
+      len_loader = min([len(self.dataloader), len(self.gan_dataloader)])
+    for data_mle, data in loader:
 
-        if 'conditions' in data:
-          conds = data['conditions'].to(self.device)
-        else:
-          conds = None
+      input = data['input'].to(self.device)
+      target = data['target'].to(self.device)
+      input_mask = data['input_mask'].to(self.device)
+      target_mask = data['target_mask'].to(self.device)
 
-        if index == 0:
-          b_size, seq_len = target.shape
+      input_mle = data_mle['input'].to(self.device)
+      target_mle = data_mle['target'].to(self.device)
+      input_mask_mle = data_mle['input_mask'].to(self.device)
+      target_mask_mle = data_mle['target_mask'].to(self.device)
+              
+      if 'conditions' in data:
+        conds = data['conditions'].to(self.device)
+      else:
+        conds = None
+
+      if 'conditions' in data_mle:
+        conds_mle = data_mle['conditions'].to(self.device)
+      else:
+        conds_mle = None
+
+      if index == 0:
+        b_size, seq_len = target.shape
+    
+      #########
+      # D update
+      #########      
+      # Allows D to be updated
+      for p in self.discriminator.parameters():
+        p.requires_grad = True
+      for p in self.generator.parameters():
+        p.requires_grad = False
       
-        #########
-        # D update
-        #########      
-        # Allows D to be updated
-        for p in self.discriminator.parameters():
-          p.requires_grad = True
+      for _ in range(self.d_iters):
         
-        for _ in range(self.d_iters):
-          
-          d_real, d_real_local = self.discriminator(F.one_hot(input, num_classes=self.vocab_size), cond=conds, input_mask=input_mask)
-          
-          inverse_temperature = self.get_inverse_temperature()
-          fake, fake_gumbel = self.generator(input, cond=conds, inverse_temperature=inverse_temperature, input_mask=input_mask)
-          d_fake, d_fake_local = self.discriminator(fake_gumbel, cond=conds, input_mask=input_mask)
-
-          '''
-          clone_out = fake.clone()
-          if (index+1)%log_interval == 0:
-            unique, counts = torch.unique(torch.argmax(F.softmax(clone_out[:1], dim=1), dim = 1), sorted=True, return_counts=True)
-            print(unique[torch.argsort(counts, descending=True)], len(unique))
-          '''
-
-          # Chunk and calculate loss
-          # TEST HINGE LOSS
-          #d_loss = self.gan_loss(self.discriminator, d_fake, fake_gumbel.data, d_real, F.one_hot(target, num_classes=self.vocab_size).data,
-          #                      mode='d', add_disc_inputs=[conds, target_mask])
-          d_loss = self.gan_loss(d_fake, d_real, mode ='d')
-          gp = self.get_gp(fake, F.one_hot(target, num_classes=self.vocab_size), [conds, target_mask], norm_value=1)
-          if self.local_loss != None:
-            d_loss_local = self.local_loss(d_fake_local, d_real_local, mode='d', mask=self.discriminator.get_patch_loss_mask(target_mask).unsqueeze(-1))
-            gp_local = self.get_gp(fake, F.one_hot(target, num_classes=self.vocab_size), [conds, target_mask], norm_value=1, pos=1)
-            #print(d_loss.item(), d_loss_local.item())
-            d_loss += d_loss_local
-            gp += gp_local
-
-          d_loss = d_loss + 10*gp         
-          self.d_optimizer.zero_grad()                  
-          # loss /= self.accumulation_steps
-          d_loss.backward()
-          #nn.utils.clip_grad_norm_(self.discriminator.parameters(), 3.0)
-          self.d_optimizer.step()    
-          #self.scheduler.step()
-
-          d_losses.append(d_loss.item())
-            
-        #self.d_scheduler.step()
-        #########
-        # G update
-        #########      
-        # Stops D from being updated
-        for p in self.discriminator.parameters():
-          p.requires_grad = False      
-        
-        inverse_temperature=self.get_inverse_temperature()
-
-        fake,_ = self.generator(input, cond=conds, inverse_temperature=inverse_temperature, input_mask=input_mask)
-
-        mle_loss = self.ce_loss(fake, target, loss_mask=target_mask)  
-
-        mle_grads = torch.autograd.grad(mle_loss, self.generator.get_last_layer(), retain_graph=True)[0]
-
-        self.g_optimizer_mle.zero_grad()    
-        mle_loss.backward()
-        self.g_optimizer_mle.step()    
-        self.g_scheduler.step()
-
-
+        #CHECK      
         d_real, d_real_local = self.discriminator(F.one_hot(input, num_classes=self.vocab_size), cond=conds, input_mask=input_mask)
-                
+        inverse_temperature = self.get_inverse_temperature()
         fake, fake_gumbel = self.generator.forward_recurrent(input, cond=conds, inverse_temperature=inverse_temperature, input_mask=input_mask)
-        d_fake, d_fake_local  = self.discriminator(fake_gumbel, cond=conds, input_mask=input_mask)
+        d_fake, d_fake_local = self.discriminator(fake_gumbel.detach(), cond=conds, input_mask=input_mask)
 
-        '''
-        feat_loss = 0
-        for feat_fake, feat_real in zip(feats_fake, feats_real):
-          feat_loss += self.L1Loss(feat_fake, feat_real.detach(), self.discriminator.get_patch_loss_mask(target_mask))
-        '''
+        #d_real, d_real_local = self.discriminator.forward_check(F.one_hot(input, num_classes=self.vocab_size), cond=conds, input_mask=input_mask)
+        #inverse_temperature = self.get_inverse_temperature()
+        #fake, fake_gumbel = self.generator.forward_recurrent(input, cond=conds, inverse_temperature=inverse_temperature, input_mask=input_mask)#, checkpoint=True)
+        #d_fake, d_fake_local = self.discriminator.forward_check(fake_gumbel, cond=conds, input_mask=input_mask)
 
-        # TEST HINGE LOSS
-        #gan_g_loss = self.gan_loss(self.discriminator, d_fake, mode='g')
-        gan_g_loss = self.gan_loss(d_fake, d_real, mode='g')
+        # Chunk and calculate loss
+
+        d_loss = self.gan_loss(d_fake, d_real, mode ='d')
+        gp = self.get_gp(fake, F.one_hot(target, num_classes=self.vocab_size), [conds, target_mask], norm_value=1)
         if self.local_loss != None:
-          gan_g_loss_local = self.local_loss(d_fake_local, d_real_local, mode='g', mask=self.discriminator.get_patch_loss_mask(target_mask).unsqueeze(-1))
-          #print(gan_g_loss.item(), gan_g_loss_local.item())
-          gan_g_loss += gan_g_loss_local
+          d_loss_local = self.local_loss(d_fake_local, d_real_local, mode='d', mask=self.discriminator.get_patch_loss_mask(target_mask).unsqueeze(-1))
+          gp_local = self.get_gp(fake, F.one_hot(target, num_classes=self.vocab_size), [conds, target_mask], norm_value=1, pos=1)
+          #print(d_loss.item(), d_loss_local.item())
+          d_loss += d_loss_local
+          gp += gp_local
 
-        # loss_hp = self.get_loss_hp(mle_loss, gan_g_loss, self.generator.get_last_layer())
-        g_grads = torch.autograd.grad(gan_g_loss, self.generator.get_last_layer(), retain_graph=True)[0]
-        loss_hp = self.get_loss_hp2(mle_grads, g_grads)
+        d_loss = d_loss + 10*gp    
+
+
+        self.d_optimizer.zero_grad()                  
+        d_loss.backward()
+        #nn.utils.clip_grad_norm_(self.discriminator.parameters(), 3.0)
+        self.d_optimizer.step()   
+
+        d_losses.append(d_loss.item())
+          
+      #########
+      # G update
+      #########      
+      # Stops D from being updated
+      for p in self.discriminator.parameters():
+        p.requires_grad = False   
+      for p in self.generator.parameters():
+        p.requires_grad = True
       
-        #g_loss = mle_loss + self.gan_hp*gan_g_loss
-                
-        self.g_optimizer.zero_grad()    
-        #g_loss.backward()
-        gan_g_loss.backward()
-        #nn.utils.clip_grad_norm_(self.generator.parameters(), 3.0)
-        self.g_optimizer.step()    
-        
-        g_losses.append(gan_g_loss.item())
-        losses.append(mle_loss.item())
+      inverse_temperature=self.get_inverse_temperature()
 
-        preds = torch.argmax(F.softmax(fake, dim=-1), dim = -1)     
+      ######
+      #MLE
+      ######     
+      
+      fake,_ = self.generator.forward(input_mle, cond=conds_mle, inverse_temperature=inverse_temperature, input_mask=input_mask_mle)
+      mle_loss = self.ce_loss(fake, target_mle, loss_mask=target_mask_mle)  
 
-        correct_predictions += torch.sum((preds == target)*target_mask)
-        total_elements += torch.sum(target_mask)
-        #print(set(preds.reshape(-1).tolist()))
-                    
-        if index % log_interval == 0 and index > 0:
-          elapsed = time.time() - start_time
-          current_loss = np.mean(losses)
-          current_d_loss = np.mean(d_losses)
-          current_g_loss = np.mean(g_losses)
+      #mle_grads = torch.autograd.grad(mle_loss, self.generator.get_last_layer(), retain_graph=True)[0]
 
-          print('| {:5d} of {:5d} batches | d_lr {:02.7f} | g_lr {:02.7f} | ms/batch {:5.2f} | '
-                'loss {:5.6f} | acc {:8.6f} |  D_loss: {} |  G_loss: {} | loss_hp: {} |'
-                ' inverse_temperature: {} | num_iters: {} '.format(
-                index, len_loader, 
-                self.g_lr, self.d_lr,
-                #self.d_scheduler.get_last_lr()[0], self.g_scheduler.get_last_lr()[0],
-                elapsed*1000/log_interval,
-                current_loss,  correct_predictions/total_elements, 
-                current_d_loss, current_g_loss, loss_hp,
-                inverse_temperature, self.num_iters))
-          start_time = time.time()
+      #FP16       
+      self.g_optimizer_mle.zero_grad()  
+      mle_loss.backward()  
+      self.g_optimizer_mle.step()
+      self.g_scheduler.step()
 
-        self.num_iters += 1
-        index += 1
+      preds = torch.argmax(F.softmax(fake, dim=-1), dim = -1)     
+      correct_predictions += torch.sum((preds == target_mle)*target_mask_mle)
+      total_elements += torch.sum(target_mask_mle)        
+      
+      #####
+      #GAN
+      #####
+      d_real, d_real_local = self.discriminator(F.one_hot(input, num_classes=self.vocab_size), cond=conds, input_mask=input_mask)
+      fake, fake_gumbel = self.generator.forward_recurrent(input, cond=conds, inverse_temperature=inverse_temperature, input_mask=input_mask)
+      d_fake, d_fake_local  = self.discriminator(fake_gumbel, cond=conds, input_mask=input_mask)
+
+      # TEST HINGE LOSS
+      gan_g_loss = self.gan_loss(d_fake, d_real, mode='g')
+      if self.local_loss != None:
+        gan_g_loss_local = self.local_loss(d_fake_local, d_real_local, mode='g', mask=self.discriminator.get_patch_loss_mask(target_mask).unsqueeze(-1))
+        #print(gan_g_loss.item(), gan_g_loss_local.item())
+        gan_g_loss += gan_g_loss_local
+
+      # loss_hp = self.get_loss_hp(mle_loss, gan_g_loss, self.generator.get_last_layer())
+      #g_grads = torch.autograd.grad(gan_g_loss, self.generator.get_last_layer(), retain_graph=True)[0]
+      #loss_hp = self.get_loss_hp2(mle_grads, g_grads)
+      loss_hp=0
+
+      #FP16        
+      self.g_optimizer.zero_grad()    
+      gan_g_loss.backward()
+      self.g_optimizer.step()    
+      
+      g_losses.append(gan_g_loss.item())
+      losses.append(mle_loss.item())
+                  
+      if index % log_interval == 0 and index > 0:
+        elapsed = time.time() - start_time
+        current_loss = np.mean(losses)
+        current_d_loss = np.mean(d_losses)
+        current_g_loss = np.mean(g_losses)
+
+        print('| {:5d} of {:5d} batches | d_lr {:02.7f} | g_lr {:02.7f} | ms/batch {:5.2f} | '
+              'loss {:5.6f} | acc {:8.6f} |  D_loss: {} |  G_loss: {} | loss_hp: {} |'
+              ' inverse_temperature: {} | num_iters: {} '.format(
+              index, len_loader, 
+              self.g_lr, self.d_lr,
+              #self.d_scheduler.get_last_lr()[0], self.g_scheduler.get_last_lr()[0],
+              elapsed*1000/log_interval,
+              current_loss,  correct_predictions/total_elements, 
+              current_d_loss, current_g_loss, loss_hp,
+              inverse_temperature, self.num_iters))
+        start_time = time.time()
+
+      self.num_iters += 1
+      index += 1
 
       if self.num_iters > self.total_iters:
         break
@@ -490,7 +487,6 @@ class TransformerTrainer():
     torch.save(checkpoint, checkpoint_dir + 'tr_checkpoint.pth')
     with open(checkpoint_dir + 'history.pkl', 'wb') as f:
       pkl.dump(self.history, f)
-
 
 
 
