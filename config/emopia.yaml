@@ -1,0 +1,30 @@
+---
+data:
+  steps_per_sec: 100
+  num_vel_bins: 32
+  min_pitch: 0
+  max_pitch: 127 
+  seq_len: 128
+  num_workers: 4
+  stretch_factors: [1.0]
+  pitch_transpose_range: [0] 
+  batch_size: 8
+  vocab_size: {'tempo_key': 56, 'chord_key': 135, 'barbeat_key': 18, 'type_key': 3, 'pitch_key': 87, 'duration_key': 18, 'velocity_key': 41}
+
+    
+model:
+  emb_sizes: {'tempo_key': 128, 'chord_key': 256, 'barbeat_key': 64, 'type_key': 32, 'pitch_key': 512, 'duration_key': 128, 'velocity_key': 128}
+  d_model: 512
+  max_seq_len: 8192
+  n_layers: 6
+  n_heads: 8
+  ff_dim: 2048
+  patch_size: 16
+
+training:
+  d_lr: 0.0003
+  g_lr: 0.0001
+  d_iters: 1
+  temperature: 100
+  gan_hp: 1
+  total_iters: 1000

@@ -1,0 +1,24 @@
+---
+data:
+  seq_len: 2048
+  num_workers: 4
+  batch_size: 8
+  vocab_size: 255
+  pad_token: 0
+    
+model:
+  max_seq_len: 8192
+  dim: 512
+  n_layers: 6
+  n_heads: 8
+  ff_dim: 2048
+  patch_size: 16
+  num_classes: 4
+
+training:
+  d_lr: 0.0003
+  g_lr: 0.0001
+  d_iters: 1
+  temperature: 100
+  gan_hp: 1
+  total_iters: 100000

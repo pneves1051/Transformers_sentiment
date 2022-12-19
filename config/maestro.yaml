@@ -1,0 +1,27 @@
+---
+data:
+  steps_per_sec: 100
+  num_vel_bins: 32
+  min_pitch: 0
+  max_pitch: 127
+  seq_len: 2048
+  num_workers: 4
+  stretch_factors: [0.95, 0.975, 1.0, 1.025, 1.05]
+  pitch_transpose_range: [-3, -2, -1, 0, 1 , 2, 3] 
+  batch_size: 8
+    
+model:
+  max_seq_len: 8192
+  dim: 512
+  n_layers: 6
+  n_heads: 8
+  ff_dim: 1024
+  patch_size: 16
+
+training:
+  d_lr: 0.0003
+  g_lr: 0.0001
+  d_iters: 1
+  temperature: 100
+  gan_hp: 1
+  total_iters: 100000
