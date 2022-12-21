@@ -2,7 +2,7 @@
 
 Authors: Pedro Neves, Jose Fornari, João Florindo
 
-Useful Links Paper | 
+Useful Links: Paper | [Generated Samples](https://drive.google.com/drive/folders/1v-N8KNePyoAnE4Ao2v5XIVfYbPwR-06H?usp=share_link)
 
 Official Pytorch implementation of the ISMIR 2022 paper "Generating music with sentiment using Transformer GANs".
 
@@ -18,5 +18,5 @@ You can find an REMI representation encoded version of both the AILabs17k and EM
 
 ## Examples 
 
-Some audio examples can be found inside the samples folder.
+Some audio examples are available through [this link](https://drive.google.com/drive/folders/1v-N8KNePyoAnE4Ao2v5XIVfYbPwR-06H?usp=share_link).
 
