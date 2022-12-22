@@ -2,7 +2,7 @@
 
 Authors: Pedro Neves, Jose Fornari, João Florindo
 
-Useful Links: Paper | [Generated Samples](https://drive.google.com/drive/folders/1v-N8KNePyoAnE4Ao2v5XIVfYbPwR-06H?usp=share_link)
+Useful Links: [Paper](https://arxiv.org/abs/2212.11134) | [Generated Samples](https://drive.google.com/drive/folders/1v-N8KNePyoAnE4Ao2v5XIVfYbPwR-06H?usp=share_link)
 
 Official Pytorch implementation of the ISMIR 2022 paper "Generating music with sentiment using Transformer GANs".
 
